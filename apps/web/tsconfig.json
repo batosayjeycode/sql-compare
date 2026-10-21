@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "noEmit": false,
+    "emitDeclarationOnly": true,
+    "outDir": "dist-types",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "types": ["vite/client", "node", "@testing-library/jest-dom"]
+  },
+  "include": ["src", "e2e", "vite.config.ts", "playwright.config.ts"],
+  "references": [{ "path": "../../packages/core" }]
+}

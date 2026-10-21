@@ -1,0 +1,95 @@
+.root {
+  position: relative;
+}
+
+.trigger {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg-elev-2);
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+
+.trigger:hover,
+.trigger[aria-expanded='true'] {
+  border-color: var(--accent-1);
+}
+
+.panel {
+  position: absolute;
+  top: calc(100% + var(--sp-2));
+  right: 0;
+  z-index: 20;
+  width: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+  background: var(--bg-elev-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  animation: pop-in var(--dur-med) var(--ease-out);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+
+.row select {
+  min-width: 120px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--sp-1) var(--sp-2);
+}
+
+.hint {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.reset {
+  align-self: flex-start;
+  font-size: var(--fs-xs);
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-elev-2);
+  cursor: pointer;
+}
+
+.reset:hover {
+  border-color: var(--accent-1);
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+/* On narrow screens the toolbar wraps, so the button can sit near either edge.
+   Span the panel across the header (backdrop-filter makes the header the
+   containing block for fixed descendants) instead of anchoring it to the button. */
+@media (max-width: 600px) {
+  .panel {
+    position: fixed;
+    top: auto;
+    left: var(--sp-3);
+    right: var(--sp-3);
+    width: auto;
+  }
+}

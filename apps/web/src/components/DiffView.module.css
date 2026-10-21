@@ -1,0 +1,216 @@
+.diff {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  backdrop-filter: blur(12px);
+  overflow: hidden;
+  transition:
+    border-color var(--dur-med) var(--ease-out),
+    box-shadow var(--dur-med) var(--ease-out);
+}
+
+.diff:focus-within {
+  border-color: hsl(250 95% 70% / 0.5);
+  box-shadow: var(--glow);
+}
+
+/* Pane headers ------------------------------------------------------------ */
+.headers {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-bottom: 1px solid var(--border);
+}
+
+.paneHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  min-width: 0;
+  padding: var(--sp-2) var(--sp-4);
+}
+
+.paneHeader + .paneHeader {
+  border-left: 1px solid var(--border);
+}
+
+.paneInfo {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.paneTitle {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.fileName {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.paneMeta {
+  flex-shrink: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+}
+
+.paneActions {
+  display: flex;
+  gap: var(--sp-1);
+  flex-shrink: 0;
+}
+
+.action {
+  font-size: var(--fs-xs);
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-elev-2);
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+
+.action:hover:not(:disabled) {
+  border-color: var(--accent-1);
+}
+
+.action[aria-pressed='true'] {
+  border-color: var(--accent-1);
+  background: hsl(250 95% 70% / 0.18);
+}
+
+.action:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.viewBadge {
+  flex-shrink: 0;
+  font-size: var(--fs-xs);
+  padding: 1px var(--sp-2);
+  border-radius: 999px;
+  border: 1px solid var(--accent-1);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* Merge view -------------------------------------------------------------- */
+.body {
+  position: relative;
+  flex: 1;
+  min-height: 240px;
+}
+
+.merge {
+  position: absolute;
+  inset: 0;
+}
+
+.merge :global(.cm-mergeView) {
+  height: 100%;
+}
+
+.merge :global(.cm-mergeViewEditors) {
+  min-height: 100%;
+}
+
+.merge :global(.cm-mergeViewEditor + .cm-mergeViewEditor) {
+  border-left: 1px solid var(--border);
+}
+
+/* Empty state ------------------------------------------------------------- */
+.empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-4);
+  padding: var(--sp-6) var(--sp-5);
+  pointer-events: none;
+}
+
+.dropZone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  border: 2px dashed var(--border);
+  border-radius: var(--radius-lg);
+  color: var(--text-faint);
+  font-size: var(--fs-md);
+}
+
+.dropIcon {
+  font-size: var(--fs-xl);
+  color: var(--accent-2);
+}
+
+.sampleButton {
+  position: absolute;
+  left: 50%;
+  bottom: var(--sp-6);
+  transform: translateX(-50%);
+  pointer-events: auto;
+  padding: var(--sp-2) var(--sp-5);
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent-gradient);
+  color: hsl(230 40% 10%);
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--glow);
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.sampleButton:hover {
+  transform: translateX(-50%) translateY(-1px);
+}
+
+/* Drag-and-drop overlay --------------------------------------------------- */
+.dropOverlay {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 50%;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  background: hsl(188 80% 54% / 0.12);
+  border: 2px dashed var(--accent-2);
+  border-radius: var(--radius-md);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.dropOverlay[data-side='left'] {
+  left: 0;
+}
+
+.dropOverlay[data-side='right'] {
+  right: 0;
+}
+
+@media (max-width: 600px) {
+  .paneHeader {
+    flex-wrap: wrap;
+    padding: var(--sp-2);
+  }
+  .empty {
+    padding: var(--sp-3);
+  }
+}
