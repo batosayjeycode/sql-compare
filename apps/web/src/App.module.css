@@ -96,6 +96,43 @@
   color: var(--text-muted);
 }
 
+.pillButton {
+  font-size: var(--fs-sm);
+  padding: var(--sp-1) var(--sp-3);
+  border-radius: 999px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+
+.pillButton:hover,
+.pillButton[aria-expanded='true'] {
+  border-color: var(--accent-1);
+  color: var(--text);
+}
+
+.hint {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--diff-structural);
+}
+
+.linkButton {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent-2);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  font-size: inherit;
+}
+
 .textButton {
   font-size: var(--fs-sm);
   padding: var(--sp-1) var(--sp-3);

@@ -1,6 +1,6 @@
 /**
  * Core types shared between the comparison engine and the UI.
- * See PLAN.md §5.6. These are a sketch and will be refined in M2–M5.
+ * See PLAN.md §5.6. Refined milestone by milestone (M5 adds AST paths/severity).
  */
 
 export type Dialect = 'postgresql' | 'mysql' | 'generic';
@@ -38,7 +38,7 @@ export interface Difference {
   class: DiffClass;
   severity: Severity;
   description: string;
-  /** Normalization rule id that resolved this diff (structural diffs). */
+  /** Ids of the normalization rules that resolved this diff (comma-separated). */
   resolvedBy?: string;
   /** Set on semantic diffs that L3 would resolve when aggressive mode is off. */
   l3Hint?: string;
@@ -46,20 +46,58 @@ export interface Difference {
   right?: SourceRange;
 }
 
+/** One normalization rule applied to one statement (PLAN §5.4 guardrail 3). */
 export interface Transformation {
   rule: string;
+  side: 'left' | 'right';
+  /** Statement index, or -1 for input-wide rules (terminators). */
   statementIndex: number;
+  /** Number of individual edits. */
+  count: number;
+  /** The changed part, before and after. */
   before: string;
   after: string;
-  location?: SourceRange;
+}
+
+/** A rule that was rolled back because re-parsing didn't confirm equivalence. */
+export interface NormalizationIssue {
+  rule: string;
+  side: 'left' | 'right';
+  statementIndex: number;
+  message: string;
 }
 
 export interface ParseIssue {
   side: 'left' | 'right';
   statementIndex: number;
   message: string;
+  /** 1-based line and column of the error in the side's full input. */
   line: number;
   column: number;
+  /** Character offset of the error in the side's full input. */
+  offset: number;
+}
+
+/**
+ * How far a statement could be analyzed:
+ * - parsed:      the dialect parser accepted it
+ * - error:       the parser rejected it (see `message` / ParseIssue)
+ * - unsupported: syntax the parser doesn't handle (procedural blocks, client
+ *                commands, vendor extensions); compared as text only
+ * - skipped:     no parser for this dialect (Generic mode)
+ */
+export type StatementStatus = 'parsed' | 'error' | 'unsupported' | 'skipped';
+
+export interface StatementInfo {
+  index: number;
+  /** Character range of the statement, excluding its terminator. */
+  start: number;
+  end: number;
+  /** Leading keyword(s), e.g. "SELECT" or "CREATE TABLE". */
+  kind: string;
+  status: StatementStatus;
+  /** Parser error message, or why the statement is unsupported. */
+  message?: string;
 }
 
 export interface SideViews {
@@ -70,7 +108,12 @@ export interface SideViews {
 
 export interface CompareOptions {
   dialect: Dialect;
+  /** 2 = default; 3 = aggressive (L3 rules on). */
   level: NormalizationLevel;
+  /** Ids of rules the user turned off. */
+  disabledRules?: readonly string[];
+  /** MySQL: table names are case-insensitive (server runs with lower_case_table_names). */
+  caseInsensitiveTables?: boolean;
 }
 
 export interface ComparisonResult {
@@ -78,6 +121,11 @@ export interface ComparisonResult {
   stats: Record<DiffClass, number>;
   differences: Difference[];
   transformations: Transformation[];
+  /** Rules rolled back for a statement because verification failed. */
+  normalizationIssues: NormalizationIssue[];
   errors: ParseIssue[];
+  statements: { left: StatementInfo[]; right: StatementInfo[] };
+  /** Parser used for structural analysis, or null (Generic mode / parser unavailable). */
+  parser: string | null;
   views: { left: SideViews; right: SideViews };
 }

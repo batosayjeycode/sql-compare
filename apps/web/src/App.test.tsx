@@ -200,3 +200,136 @@ describe('classification summary', () => {
     );
   });
 });
+
+describe('parsing and fallback', () => {
+  const waitForResult = () =>
+    waitFor(() => expect(useCompareStore.getState().result).not.toBeNull(), { timeout: 5000 });
+
+  it('parses with the real PostgreSQL parser', async () => {
+    render(<App />);
+    setBoth('SELECT 1', 'SELECT 2');
+    await waitForResult();
+    expect(useCompareStore.getState().result?.parser).toMatch(/libpg-query/);
+  });
+
+  it('shows the parse error location, marks the statement, and still diffs it', async () => {
+    render(<App />);
+    setBoth('SELECT 1;\nSELECT (a FROM t;', 'SELECT 1;\nSELECT (b FROM t;');
+
+    const pills = await screen.findAllByRole(
+      'button',
+      { name: 'Parse error L2:11' },
+      { timeout: 5000 },
+    );
+    expect(pills).toHaveLength(2);
+    const pill = pills[0]!;
+    expect(screen.getAllByText('⚠ No structural comparison')).toHaveLength(2);
+    expect(screen.getByTestId('verdict')).toHaveTextContent('Unknown (unparsed SQL)');
+    expect(useCompareStore.getState().result?.stats.unknown).toBe(1);
+
+    fireEvent.click(pill);
+    const view = editorView('Left SQL');
+    expect(view.state.selection.main.head).toBe('SELECT 1;\nSELECT (a '.length);
+  });
+
+  it('jumping to an error from the formatted view switches back to the original', async () => {
+    render(<App />);
+    setBoth('SELECT (a FROM t', 'SELECT 1');
+    await screen.findByRole('button', { name: 'Parse error L1:11' }, { timeout: 5000 });
+    // Formatting the unparseable side fails and falls back, so format the right side instead.
+    fireEvent.click(screen.getByRole('button', { name: 'Format right side' }));
+    act(() => useCompareStore.getState().setView('left', 'formatted'));
+    fireEvent.click(screen.getByRole('button', { name: 'Parse error L1:11' }));
+    await waitFor(() => expect(useCompareStore.getState().views.left).toBe('original'));
+  });
+
+  it('labels statements the parser does not support', async () => {
+    render(<App />);
+    act(() => useCompareStore.getState().setDialect('mysql'));
+    setBoth('SET NAMES utf8;\nSELECT 1;', 'SET NAMES utf8mb4;\nSELECT 1;');
+    expect(
+      await screen.findAllByText('1 compared as text', undefined, { timeout: 5000 }),
+    ).toHaveLength(2);
+    expect(screen.getAllByText('◇ No structural comparison')).toHaveLength(2);
+    expect(screen.queryByRole('button', { name: /Parse error/ })).not.toBeInTheDocument();
+  });
+
+  it('runs a token diff only in Generic mode', async () => {
+    render(<App />);
+    act(() => useCompareStore.getState().setDialect('generic'));
+    setBoth('SELECT (a FROM t', 'SELECT (b FROM t');
+    expect(await screen.findByText('Token diff only', undefined, { timeout: 5000 })).toBeVisible();
+    expect(screen.queryByRole('button', { name: /Parse error/ })).not.toBeInTheDocument();
+    expect(screen.getByTestId('verdict')).toHaveTextContent('Potentially semantic');
+  });
+});
+
+describe('normalization', () => {
+  const verdict = () => screen.getByTestId('verdict');
+  const settled = (text: string | RegExp) =>
+    waitFor(() => expect(verdict()).toHaveTextContent(text), { timeout: 5000 });
+
+  it('reports INNER JOIN vs JOIN with a quoted table as structural (L2)', async () => {
+    render(<App />);
+    setBoth(
+      'SELECT a FROM t INNER JOIN u ON t.id = u.id',
+      'SELECT a FROM "t" JOIN u ON t.id = u.id',
+    );
+    await settled('Equivalent (structural)');
+    expect(screen.getByRole('list', { name: 'Differences by category' })).toHaveTextContent(
+      'Structural1',
+    );
+  });
+
+  it('offers aggressive normalization for reordered predicates', async () => {
+    render(<App />);
+    setBoth('SELECT a FROM t WHERE x=1 AND y=2', 'SELECT a FROM t WHERE y = 2 AND x = 1');
+    await settled('Potentially semantic');
+    expect(screen.getByText(/may be structural under aggressive normalization/)).toBeVisible();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Enable Aggressive' }));
+    await settled('Equivalent (structural)');
+    expect(screen.getByRole('button', { name: 'Normalize: L3 · Aggressive' })).toBeVisible();
+    expect(screen.queryByText(/may be structural/)).not.toBeInTheDocument();
+  });
+
+  it('lets each rule be turned off', async () => {
+    render(<App />);
+    setBoth('SELECT a FROM t INNER JOIN u ON true', 'SELECT a FROM t JOIN u ON true');
+    await settled('Equivalent (structural)');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Normalize: L2' }));
+    const rule = screen.getByRole('checkbox', { name: /Canonical join keywords/ });
+    expect(rule).toBeChecked();
+    fireEvent.click(rule);
+    await settled('Potentially semantic');
+    expect(useCompareStore.getState().normalization.disabledRules).toEqual(['join-synonyms']);
+    // L1 whitespace/comments define formatting and can't be turned off; L3 is off by default.
+    expect(screen.getByRole('checkbox', { name: /Collapse whitespace/ })).toBeDisabled();
+    expect(screen.getByRole('checkbox', { name: /Sort AND \/ OR operands/ })).not.toBeChecked();
+  });
+
+  it('lists the transformations applied with counts and examples', async () => {
+    render(<App />);
+    setBoth('select a from t where b != 1', 'SELECT a FROM t WHERE b <> 1');
+    await settled('Equivalent (structural)');
+    fireEvent.click(screen.getByRole('button', { name: /Transformations/ }));
+    const panel = screen.getByRole('group', { name: /Transformations applied/ });
+    expect(panel).toHaveTextContent('Canonical not-equal operator');
+    expect(panel).toHaveTextContent('b != 1 → b <> 1');
+    expect(panel).toHaveTextContent('Uppercase keywords');
+  });
+
+  it('shows read-only normalized SQL in the Normalized view', async () => {
+    render(<App />);
+    setBoth('select A from T inner join U on true;', 'SELECT 1');
+    await settled(/./);
+    fireEvent.click(screen.getByRole('radio', { name: 'Normalized' }));
+    await waitFor(() =>
+      expect(editorText('Left SQL')).toBe('SELECT\n  a\nFROM\n  t\n  JOIN u ON TRUE;'),
+    );
+    expect(editorView('Left SQL').state.readOnly).toBe(true);
+    expect(screen.getAllByText('Normalized · read-only')).toHaveLength(2);
+    expect(useCompareStore.getState().left.text).toBe('select A from T inner join U on true;');
+  });
+});

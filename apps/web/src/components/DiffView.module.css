@@ -39,7 +39,8 @@
 
 .paneInfo {
   display: flex;
-  align-items: baseline;
+  align-items: center;
+  flex-wrap: wrap;
   gap: var(--sp-2);
   min-width: 0;
 }
@@ -106,6 +107,32 @@
   border: 1px solid var(--accent-1);
   color: var(--text-muted);
   white-space: nowrap;
+}
+
+.errorPill,
+.infoPill {
+  flex-shrink: 0;
+  font-size: var(--fs-xs);
+  padding: 1px var(--sp-2);
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  white-space: nowrap;
+}
+
+.errorPill {
+  color: var(--diff-removed);
+  background: none;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+
+.errorPill:hover {
+  background: hsl(350 70% 60% / 0.12);
+}
+
+.infoPill {
+  color: var(--text-muted);
+  cursor: help;
 }
 
 /* Merge view -------------------------------------------------------------- */

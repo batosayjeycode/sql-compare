@@ -2,10 +2,11 @@ import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react'
 import { getChunks, MergeView } from '@codemirror/merge';
 import { Annotation, Compartment, EditorState, Transaction, type Text } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
+import { analysisExtensions, showAnalysis } from '../editor/analysis';
 import { baseExtensions, sqlLanguage } from '../editor/setup';
 import { useCompareStore, type DiffSummary, type Side } from '../store/compare';
 import { useFileLoader } from '../hooks/useFileLoader';
-import { useSideDisplay } from '../hooks/useFormatted';
+import { useSideDisplay } from '../hooks/useSideDisplay';
 import { PaneHeader } from './PaneHeader';
 import { EmptyState } from './EmptyState';
 import styles from './DiffView.module.css';
@@ -22,6 +23,16 @@ function readOnlyExtension(readOnly: boolean) {
   return readOnly
     ? [EditorState.readOnly.of(true), EditorView.contentAttributes.of({ 'aria-readonly': 'true' })]
     : [];
+}
+
+/** Put the cursor at `offset`, scroll it into view and focus the editor. */
+function moveTo(editor: EditorView, offset: number) {
+  const pos = Math.min(offset, editor.state.doc.length);
+  editor.dispatch({
+    selection: { anchor: pos },
+    effects: EditorView.scrollIntoView(pos, { y: 'center' }),
+  });
+  editor.focus();
 }
 
 /** Lines covered by a chunk side; `to` is one past the last line's end (may exceed the doc). */
@@ -43,7 +54,7 @@ function summarize(view: MergeView): DiffSummary {
 /**
  * Side-by-side raw text diff. Both sides are CodeMirror editors inside one
  * `MergeView`, so scrolling is shared and lines stay aligned. Each side shows
- * either its original SQL (editable) or its formatted view (read-only).
+ * either its original SQL (editable) or a read-only formatted / normalized view.
  */
 export function DiffView() {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -58,8 +69,13 @@ export function DiffView() {
   const dialect = useCompareStore((s) => s.dialect);
   const leftDisplay = useSideDisplay('left');
   const rightDisplay = useSideDisplay('right');
+  const result = useCompareStore((s) => s.result);
+  const setView = useCompareStore((s) => s.setView);
   const loadFile = useFileLoader();
   const [dragSide, setDragSide] = useState<Side | null>(null);
+  // A jump requested while that side showed a read-only view; applied once
+  // the original is back in the editor.
+  const pendingJumpRef = useRef<{ side: Side; offset: number } | null>(null);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -95,6 +111,7 @@ export function DiffView() {
           }),
           languageRef.current.a.of(sqlLanguage(initialDialect)),
           readOnlyRef.current.a.of([]),
+          analysisExtensions(),
           listener('left'),
         ],
       },
@@ -107,6 +124,7 @@ export function DiffView() {
           }),
           languageRef.current.b.of(sqlLanguage(initialDialect)),
           readOnlyRef.current.b.of([]),
+          analysisExtensions(),
           listener('right'),
         ],
       },
@@ -145,17 +163,48 @@ export function DiffView() {
     }
   }, [leftDisplay.text, rightDisplay.text]);
 
-  // The formatted view is read-only: edits always go to the original.
+  // Formatted and normalized views are read-only: edits always go to the original.
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
     view.a.dispatch({
-      effects: readOnlyRef.current.a.reconfigure(readOnlyExtension(leftDisplay.formatted)),
+      effects: readOnlyRef.current.a.reconfigure(readOnlyExtension(leftDisplay.readOnly)),
     });
     view.b.dispatch({
-      effects: readOnlyRef.current.b.reconfigure(readOnlyExtension(rightDisplay.formatted)),
+      effects: readOnlyRef.current.b.reconfigure(readOnlyExtension(rightDisplay.readOnly)),
     });
-  }, [leftDisplay.formatted, rightDisplay.formatted]);
+  }, [leftDisplay.readOnly, rightDisplay.readOnly]);
+
+  // Parse errors and badges: only on the original view, where offsets apply.
+  // Runs after the store → editor sync above, so the editors hold the new text.
+  const leftReadOnly = leftDisplay.readOnly;
+  const rightReadOnly = rightDisplay.readOnly;
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    showAnalysis(view.a, 'left', leftReadOnly ? null : result);
+    showAnalysis(view.b, 'right', rightReadOnly ? null : result);
+
+    const jump = pendingJumpRef.current;
+    if (jump && !(jump.side === 'left' ? leftReadOnly : rightReadOnly)) {
+      pendingJumpRef.current = null;
+      moveTo(jump.side === 'left' ? view.a : view.b, jump.offset);
+    }
+  }, [result, leftReadOnly, rightReadOnly, leftDisplay.text, rightDisplay.text]);
+
+  const jumpTo = useCallback(
+    (side: Side, offset: number) => {
+      const view = viewRef.current;
+      if (!view) return;
+      if (useCompareStore.getState().views[side] !== 'original') {
+        pendingJumpRef.current = { side, offset };
+        setView(side, 'original');
+      } else {
+        moveTo(side === 'left' ? view.a : view.b, offset);
+      }
+    },
+    [setView],
+  );
 
   useEffect(() => {
     const view = viewRef.current;
@@ -208,12 +257,19 @@ export function DiffView() {
       onDrop={onDrop}
     >
       <div className={styles.headers}>
-        <PaneHeader side="left" title={SIDE_LABELS.left.title} input={left} display={leftDisplay} />
+        <PaneHeader
+          side="left"
+          title={SIDE_LABELS.left.title}
+          input={left}
+          display={leftDisplay}
+          onJump={jumpTo}
+        />
         <PaneHeader
           side="right"
           title={SIDE_LABELS.right.title}
           input={right}
           display={rightDisplay}
+          onJump={jumpTo}
         />
       </div>
       <div className={styles.body}>

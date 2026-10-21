@@ -97,3 +97,20 @@ describe('views', () => {
     });
   });
 });
+
+describe('normalization settings', () => {
+  it('toggles rules and persists the settings', () => {
+    vi.useFakeTimers();
+    useCompareStore.getState().toggleRule('alias-as');
+    useCompareStore.getState().setNormalization({ aggressive: true });
+    vi.advanceTimersByTime(1000);
+    vi.useRealTimers();
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!).state.normalization).toEqual({
+      aggressive: true,
+      disabledRules: ['alias-as'],
+      caseInsensitiveTables: false,
+    });
+    useCompareStore.getState().toggleRule('alias-as');
+    expect(useCompareStore.getState().normalization.disabledRules).toEqual([]);
+  });
+});

@@ -53,7 +53,7 @@ function commentKeys(tokens: Token[], from: number, to: number, keywords: Readon
  * differently. Always diff in a canonical order and flip the result, so
  * comparing B with A mirrors comparing A with B exactly.
  */
-function symmetricDiff(a: string[], b: string[]) {
+export function symmetricDiff(a: string[], b: string[]) {
   const swap = a.length !== b.length ? a.length > b.length : a.join('\u0000') > b.join('\u0000');
   if (!swap) return diffArrays(a, b);
   return diffArrays(b, a).map((c) => ({ ...c, added: c.removed, removed: c.added }));

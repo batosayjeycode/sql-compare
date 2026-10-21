@@ -55,6 +55,18 @@ const editorTheme = EditorView.theme({
     outline: '1px solid var(--border)',
   },
 
+  // Tooltips (parse error messages) follow the app theme, not CodeMirror's light default.
+  '.cm-tooltip': {
+    backgroundColor: 'var(--bg-elev-1)',
+    color: 'var(--text)',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius-sm)',
+    boxShadow: 'var(--shadow-lg)',
+  },
+  '.cm-diagnostic': { padding: 'var(--sp-1) var(--sp-2)', fontFamily: 'var(--font-ui)' },
+  '.cm-diagnostic-error': { borderLeftColor: 'var(--diff-removed)' },
+  '.cm-diagnosticSource': { color: 'var(--text-muted)' },
+
   // Raw text diff (merge view). A = original (removed), B = modified (added).
   '&.cm-merge-a .cm-changedLine': { backgroundColor: 'var(--diff-removed-line)' },
   '&.cm-merge-b .cm-changedLine': { backgroundColor: 'var(--diff-added-line)' },

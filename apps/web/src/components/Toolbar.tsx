@@ -1,6 +1,7 @@
-import { DEFAULT_OPTIONS, SUPPORTED_DIALECTS, type Dialect } from '@sql-compare/core';
+import { SUPPORTED_DIALECTS, type Dialect } from '@sql-compare/core';
 import { useCompareStore } from '../store/compare';
 import { FormatOptionsPanel } from './FormatOptionsPanel';
+import { NormalizationPanel } from './NormalizationPanel';
 import styles from '../App.module.css';
 
 export function Toolbar() {
@@ -29,9 +30,7 @@ export function Toolbar() {
         </select>
       </label>
 
-      <span className={styles.pill} title="Default normalization level">
-        Normalize: L{DEFAULT_OPTIONS.level}
-      </span>
+      <NormalizationPanel triggerClassName={styles.pillButton} />
 
       <button type="button" className={styles.textButton} onClick={loadSample}>
         Load example

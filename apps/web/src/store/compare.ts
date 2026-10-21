@@ -12,7 +12,23 @@ import { sampleFor } from '../lib/samples';
 export type Side = 'left' | 'right';
 export type Theme = 'dark' | 'light';
 /** Which text an editor shows (FR-3.1). The original is never modified by a view switch. */
-export type SideView = 'original' | 'formatted';
+export type SideView = 'original' | 'formatted' | 'normalized';
+
+/** Normalization settings (PLAN §5.4). Default: L2 with every rule on. */
+export interface NormalizationSettings {
+  /** L3 "Aggressive normalization": safe structural reordering. */
+  aggressive: boolean;
+  /** Rules the user turned off. */
+  disabledRules: string[];
+  /** MySQL lower_case_table_names: table names compare case-insensitively. */
+  caseInsensitiveTables: boolean;
+}
+
+export const DEFAULT_NORMALIZATION: NormalizationSettings = {
+  aggressive: false,
+  disabledRules: [],
+  caseInsensitiveTables: false,
+};
 
 export interface SideInput {
   text: string;
@@ -44,8 +60,11 @@ export interface CompareState {
   diff: DiffSummary | null;
   views: Record<Side, SideView>;
   formatOptions: FormatOptions;
-  /** Latest token-level comparison of the two originals (debounced). */
+  normalization: NormalizationSettings;
+  /** Latest comparison of the two originals (debounced, computed in a worker). */
   result: ComparisonResult | null;
+  /** True while a comparison for the current inputs is pending. */
+  comparing: boolean;
 
   setText: (side: Side, text: string) => void;
   loadFile: (side: Side, text: string, fileName: string) => void;
@@ -60,9 +79,12 @@ export interface CompareState {
   setDiff: (diff: DiffSummary | null) => void;
   setView: (side: Side, view: SideView) => void;
   setAllViews: (view: SideView) => void;
+  setNormalization: (settings: Partial<NormalizationSettings>) => void;
+  toggleRule: (id: string) => void;
   setFormatOptions: (options: Partial<FormatOptions>) => void;
   resetFormatOptions: () => void;
   setResult: (result: ComparisonResult | null) => void;
+  setComparing: (comparing: boolean) => void;
 }
 
 const EMPTY_SIDE: SideInput = { text: '', fileName: null };
@@ -140,7 +162,9 @@ export const initialState = {
   diff: null,
   views: { left: 'original', right: 'original' } as Record<Side, SideView>,
   formatOptions: DEFAULT_FORMAT_OPTIONS,
+  normalization: DEFAULT_NORMALIZATION,
   result: null,
+  comparing: false,
 } satisfies Partial<CompareState>;
 
 export const useCompareStore = create<CompareState>()(
@@ -175,10 +199,25 @@ export const useCompareStore = create<CompareState>()(
       setDiff: (diff) => set({ diff }),
       setView: (side, view) => set((s) => ({ views: { ...s.views, [side]: view } })),
       setAllViews: (view) => set({ views: { left: view, right: view } }),
+      setNormalization: (settings) =>
+        set((s) => ({ normalization: { ...s.normalization, ...settings } })),
+      toggleRule: (id) =>
+        set((s) => {
+          const disabled = s.normalization.disabledRules;
+          return {
+            normalization: {
+              ...s.normalization,
+              disabledRules: disabled.includes(id)
+                ? disabled.filter((r) => r !== id)
+                : [...disabled, id],
+            },
+          };
+        }),
       setFormatOptions: (options) =>
         set((s) => ({ formatOptions: { ...s.formatOptions, ...options } })),
       resetFormatOptions: () => set({ formatOptions: DEFAULT_FORMAT_OPTIONS }),
       setResult: (result) => set({ result }),
+      setComparing: (comparing) => set({ comparing }),
     }),
     {
       name: STORAGE_KEY,
@@ -191,6 +230,7 @@ export const useCompareStore = create<CompareState>()(
           ...current,
           ...saved,
           formatOptions: { ...current.formatOptions, ...saved.formatOptions },
+          normalization: { ...current.normalization, ...saved.normalization },
         };
       },
       // Drafts are only written while persistDrafts is on; turning it off
@@ -200,6 +240,7 @@ export const useCompareStore = create<CompareState>()(
         theme: s.theme,
         persistDrafts: s.persistDrafts,
         formatOptions: s.formatOptions,
+        normalization: s.normalization,
         ...(s.persistDrafts ? { left: s.left, right: s.right } : {}),
       }),
     },
