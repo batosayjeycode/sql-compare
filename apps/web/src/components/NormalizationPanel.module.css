@@ -1,0 +1,61 @@
+.option,
+.rule {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+
+.option input,
+.rule input {
+  margin-top: 3px;
+  accent-color: var(--accent-1);
+}
+
+.option > span,
+.rule > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.option small,
+.rule small {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.rule:has(input:disabled) {
+  cursor: default;
+}
+
+.rule:has(input:disabled) > span {
+  opacity: 0.7;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: var(--sp-3) 0 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+.group legend {
+  float: left;
+  width: 100%;
+  margin-bottom: var(--sp-1);
+}
+
+.tag {
+  margin-left: var(--sp-2);
+  padding: 0 var(--sp-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}

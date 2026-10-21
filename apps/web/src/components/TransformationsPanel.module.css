@@ -1,0 +1,61 @@
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding: var(--sp-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-sm);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.level {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  padding: 0 var(--sp-1);
+  border-radius: var(--radius-sm);
+  color: var(--diff-structural);
+  border: 1px solid currentColor;
+}
+
+.title {
+  flex: 1;
+}
+
+.count {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.example {
+  font-family: var(--font-mono);
+  /* Show the real characters (`!=`, `<>`), never font ligatures. */
+  font-variant-ligatures: none;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.issue {
+  color: var(--diff-semantic);
+}
+
+.warn {
+  color: var(--diff-semantic);
+}

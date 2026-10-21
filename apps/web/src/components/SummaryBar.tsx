@@ -1,6 +1,7 @@
 import type { Verdict } from '@sql-compare/core';
 import { useCompareStore, type DiffSummary } from '../store/compare';
 import styles from '../App.module.css';
+import { TransformationsPanel } from './TransformationsPanel';
 
 const VERDICTS: Record<Verdict, { label: string; cls: string | undefined }> = {
   identical: { label: 'Identical', cls: styles.verdictSame },
@@ -39,6 +40,10 @@ export function SummaryBar() {
     { cls: styles.formatting, icon: '¶', label: 'Formatting', count: stats?.formatting },
   ];
   const verdict = hasBoth && result ? VERDICTS[result.verdict] : null;
+  const aggressive = useCompareStore((s) => s.normalization.aggressive);
+  const setNormalization = useCompareStore((s) => s.setNormalization);
+  const hinted =
+    hasBoth && !aggressive ? (result?.differences.filter((d) => d.l3Hint).length ?? 0) : 0;
 
   return (
     <>
@@ -50,6 +55,19 @@ export function SummaryBar() {
           </li>
         ))}
       </ul>
+      {hasBoth && result && <TransformationsPanel triggerClassName={styles.pillButton} />}
+      {hinted > 0 && (
+        <span className={styles.hint}>
+          {hinted} may be structural under aggressive normalization
+          <button
+            type="button"
+            className={styles.linkButton}
+            onClick={() => setNormalization({ aggressive: true })}
+          >
+            Enable Aggressive
+          </button>
+        </span>
+      )}
       <div className={styles.statusGroup}>
         {verdict && (
           <span className={`${styles.verdict} ${verdict.cls}`} data-testid="verdict">

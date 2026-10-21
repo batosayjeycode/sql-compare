@@ -3,7 +3,7 @@ import { ACCEPT_ATTR } from '../lib/files';
 import { useShallow } from 'zustand/react/shallow';
 import { useCompareStore, type Side, type SideInput } from '../store/compare';
 import { useFileLoader } from '../hooks/useFileLoader';
-import type { SideDisplay } from '../hooks/useFormatted';
+import type { SideDisplay } from '../hooks/useSideDisplay';
 import styles from './DiffView.module.css';
 
 interface PaneHeaderProps {
@@ -97,9 +97,12 @@ export function PaneHeader({ side, title, input, display, onJump }: PaneHeaderPr
             {analysis.unsupported} compared as text
           </span>
         )}
-        {display.formatted && (
-          <span className={styles.viewBadge} title="Formatted view. Switch to Original to edit.">
-            Formatted · read-only
+        {display.readOnly && (
+          <span
+            className={styles.viewBadge}
+            title={`${display.mode === 'normalized' ? 'Normalized' : 'Formatted'} view. Switch to Original to edit.`}
+          >
+            {display.mode === 'normalized' ? 'Normalized' : 'Formatted'} · read-only
           </span>
         )}
       </div>

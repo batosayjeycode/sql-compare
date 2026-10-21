@@ -15,7 +15,13 @@ export {
 export { tokenDiff } from './diff/token.js';
 export { compare, lineColumn } from './compare.js';
 export { splitStatements, type Statement } from './split.js';
-export { loadParser, type ParserAdapter, type StatementParse } from './parse.js';
+export {
+  loadParser,
+  type CanonicalMode,
+  type ParserAdapter,
+  type StatementParse,
+} from './parse.js';
+export { RULES, printTokens, type NormalizationRule } from './normalize/index.js';
 
 export const DEFAULT_OPTIONS: CompareOptions = {
   dialect: 'postgresql',

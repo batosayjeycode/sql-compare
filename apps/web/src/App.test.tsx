@@ -263,3 +263,73 @@ describe('parsing and fallback', () => {
     expect(screen.getByTestId('verdict')).toHaveTextContent('Potentially semantic');
   });
 });
+
+describe('normalization', () => {
+  const verdict = () => screen.getByTestId('verdict');
+  const settled = (text: string | RegExp) =>
+    waitFor(() => expect(verdict()).toHaveTextContent(text), { timeout: 5000 });
+
+  it('reports INNER JOIN vs JOIN with a quoted table as structural (L2)', async () => {
+    render(<App />);
+    setBoth(
+      'SELECT a FROM t INNER JOIN u ON t.id = u.id',
+      'SELECT a FROM "t" JOIN u ON t.id = u.id',
+    );
+    await settled('Equivalent (structural)');
+    expect(screen.getByRole('list', { name: 'Differences by category' })).toHaveTextContent(
+      'Structural1',
+    );
+  });
+
+  it('offers aggressive normalization for reordered predicates', async () => {
+    render(<App />);
+    setBoth('SELECT a FROM t WHERE x=1 AND y=2', 'SELECT a FROM t WHERE y = 2 AND x = 1');
+    await settled('Potentially semantic');
+    expect(screen.getByText(/may be structural under aggressive normalization/)).toBeVisible();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Enable Aggressive' }));
+    await settled('Equivalent (structural)');
+    expect(screen.getByRole('button', { name: 'Normalize: L3 · Aggressive' })).toBeVisible();
+    expect(screen.queryByText(/may be structural/)).not.toBeInTheDocument();
+  });
+
+  it('lets each rule be turned off', async () => {
+    render(<App />);
+    setBoth('SELECT a FROM t INNER JOIN u ON true', 'SELECT a FROM t JOIN u ON true');
+    await settled('Equivalent (structural)');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Normalize: L2' }));
+    const rule = screen.getByRole('checkbox', { name: /Canonical join keywords/ });
+    expect(rule).toBeChecked();
+    fireEvent.click(rule);
+    await settled('Potentially semantic');
+    expect(useCompareStore.getState().normalization.disabledRules).toEqual(['join-synonyms']);
+    // L1 whitespace/comments define formatting and can't be turned off; L3 is off by default.
+    expect(screen.getByRole('checkbox', { name: /Collapse whitespace/ })).toBeDisabled();
+    expect(screen.getByRole('checkbox', { name: /Sort AND \/ OR operands/ })).not.toBeChecked();
+  });
+
+  it('lists the transformations applied with counts and examples', async () => {
+    render(<App />);
+    setBoth('select a from t where b != 1', 'SELECT a FROM t WHERE b <> 1');
+    await settled('Equivalent (structural)');
+    fireEvent.click(screen.getByRole('button', { name: /Transformations/ }));
+    const panel = screen.getByRole('group', { name: /Transformations applied/ });
+    expect(panel).toHaveTextContent('Canonical not-equal operator');
+    expect(panel).toHaveTextContent('b != 1 → b <> 1');
+    expect(panel).toHaveTextContent('Uppercase keywords');
+  });
+
+  it('shows read-only normalized SQL in the Normalized view', async () => {
+    render(<App />);
+    setBoth('select A from T inner join U on true;', 'SELECT 1');
+    await settled(/./);
+    fireEvent.click(screen.getByRole('radio', { name: 'Normalized' }));
+    await waitFor(() =>
+      expect(editorText('Left SQL')).toBe('SELECT\n  a\nFROM\n  t\n  JOIN u ON TRUE;'),
+    );
+    expect(editorView('Left SQL').state.readOnly).toBe(true);
+    expect(screen.getAllByText('Normalized · read-only')).toHaveLength(2);
+    expect(useCompareStore.getState().left.text).toBe('select A from T inner join U on true;');
+  });
+});

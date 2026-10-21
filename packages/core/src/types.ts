@@ -38,7 +38,7 @@ export interface Difference {
   class: DiffClass;
   severity: Severity;
   description: string;
-  /** Normalization rule id that resolved this diff (structural diffs). */
+  /** Ids of the normalization rules that resolved this diff (comma-separated). */
   resolvedBy?: string;
   /** Set on semantic diffs that L3 would resolve when aggressive mode is off. */
   l3Hint?: string;
@@ -46,12 +46,25 @@ export interface Difference {
   right?: SourceRange;
 }
 
+/** One normalization rule applied to one statement (PLAN §5.4 guardrail 3). */
 export interface Transformation {
   rule: string;
+  side: 'left' | 'right';
+  /** Statement index, or -1 for input-wide rules (terminators). */
   statementIndex: number;
+  /** Number of individual edits. */
+  count: number;
+  /** The changed part, before and after. */
   before: string;
   after: string;
-  location?: SourceRange;
+}
+
+/** A rule that was rolled back because re-parsing didn't confirm equivalence. */
+export interface NormalizationIssue {
+  rule: string;
+  side: 'left' | 'right';
+  statementIndex: number;
+  message: string;
 }
 
 export interface ParseIssue {
@@ -95,7 +108,12 @@ export interface SideViews {
 
 export interface CompareOptions {
   dialect: Dialect;
+  /** 2 = default; 3 = aggressive (L3 rules on). */
   level: NormalizationLevel;
+  /** Ids of rules the user turned off. */
+  disabledRules?: readonly string[];
+  /** MySQL: table names are case-insensitive (server runs with lower_case_table_names). */
+  caseInsensitiveTables?: boolean;
 }
 
 export interface ComparisonResult {
@@ -103,6 +121,8 @@ export interface ComparisonResult {
   stats: Record<DiffClass, number>;
   differences: Difference[];
   transformations: Transformation[];
+  /** Rules rolled back for a statement because verification failed. */
+  normalizationIssues: NormalizationIssue[];
   errors: ParseIssue[];
   statements: { left: StatementInfo[]; right: StatementInfo[] };
   /** Parser used for structural analysis, or null (Generic mode / parser unavailable). */

@@ -14,6 +14,7 @@ export function useComparison() {
   const left = useCompareStore((s) => s.left.text);
   const right = useCompareStore((s) => s.right.text);
   const dialect = useCompareStore((s) => s.dialect);
+  const normalization = useCompareStore((s) => s.normalization);
   const setResult = useCompareStore((s) => s.setResult);
   const setComparing = useCompareStore((s) => s.setComparing);
   const notify = useCompareStore((s) => s.notify);
@@ -44,6 +45,9 @@ export function useComparison() {
       const { result, warning } = await engine.compare(left, right, {
         ...DEFAULT_OPTIONS,
         dialect,
+        level: normalization.aggressive ? 3 : 2,
+        disabledRules: normalization.disabledRules,
+        caseInsensitiveTables: normalization.caseInsensitiveTables,
       });
       if (request !== requestRef.current) return;
       setResult(result);
@@ -52,5 +56,5 @@ export function useComparison() {
       lastWarningRef.current = warning;
     }, COMPARE_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [left, right, dialect, setResult, setComparing, notify]);
+  }, [left, right, dialect, normalization, setResult, setComparing, notify]);
 }
