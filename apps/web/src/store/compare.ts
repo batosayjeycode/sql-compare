@@ -44,8 +44,10 @@ export interface CompareState {
   diff: DiffSummary | null;
   views: Record<Side, SideView>;
   formatOptions: FormatOptions;
-  /** Latest token-level comparison of the two originals (debounced). */
+  /** Latest comparison of the two originals (debounced, computed in a worker). */
   result: ComparisonResult | null;
+  /** True while a comparison for the current inputs is pending. */
+  comparing: boolean;
 
   setText: (side: Side, text: string) => void;
   loadFile: (side: Side, text: string, fileName: string) => void;
@@ -63,6 +65,7 @@ export interface CompareState {
   setFormatOptions: (options: Partial<FormatOptions>) => void;
   resetFormatOptions: () => void;
   setResult: (result: ComparisonResult | null) => void;
+  setComparing: (comparing: boolean) => void;
 }
 
 const EMPTY_SIDE: SideInput = { text: '', fileName: null };
@@ -141,6 +144,7 @@ export const initialState = {
   views: { left: 'original', right: 'original' } as Record<Side, SideView>,
   formatOptions: DEFAULT_FORMAT_OPTIONS,
   result: null,
+  comparing: false,
 } satisfies Partial<CompareState>;
 
 export const useCompareStore = create<CompareState>()(
@@ -179,6 +183,7 @@ export const useCompareStore = create<CompareState>()(
         set((s) => ({ formatOptions: { ...s.formatOptions, ...options } })),
       resetFormatOptions: () => set({ formatOptions: DEFAULT_FORMAT_OPTIONS }),
       setResult: (result) => set({ result }),
+      setComparing: (comparing) => set({ comparing }),
     }),
     {
       name: STORAGE_KEY,

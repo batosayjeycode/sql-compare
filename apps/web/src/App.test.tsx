@@ -200,3 +200,66 @@ describe('classification summary', () => {
     );
   });
 });
+
+describe('parsing and fallback', () => {
+  const waitForResult = () =>
+    waitFor(() => expect(useCompareStore.getState().result).not.toBeNull(), { timeout: 5000 });
+
+  it('parses with the real PostgreSQL parser', async () => {
+    render(<App />);
+    setBoth('SELECT 1', 'SELECT 2');
+    await waitForResult();
+    expect(useCompareStore.getState().result?.parser).toMatch(/libpg-query/);
+  });
+
+  it('shows the parse error location, marks the statement, and still diffs it', async () => {
+    render(<App />);
+    setBoth('SELECT 1;\nSELECT (a FROM t;', 'SELECT 1;\nSELECT (b FROM t;');
+
+    const pills = await screen.findAllByRole(
+      'button',
+      { name: 'Parse error L2:11' },
+      { timeout: 5000 },
+    );
+    expect(pills).toHaveLength(2);
+    const pill = pills[0]!;
+    expect(screen.getAllByText('⚠ No structural comparison')).toHaveLength(2);
+    expect(screen.getByTestId('verdict')).toHaveTextContent('Unknown (unparsed SQL)');
+    expect(useCompareStore.getState().result?.stats.unknown).toBe(1);
+
+    fireEvent.click(pill);
+    const view = editorView('Left SQL');
+    expect(view.state.selection.main.head).toBe('SELECT 1;\nSELECT (a '.length);
+  });
+
+  it('jumping to an error from the formatted view switches back to the original', async () => {
+    render(<App />);
+    setBoth('SELECT (a FROM t', 'SELECT 1');
+    await screen.findByRole('button', { name: 'Parse error L1:11' }, { timeout: 5000 });
+    // Formatting the unparseable side fails and falls back, so format the right side instead.
+    fireEvent.click(screen.getByRole('button', { name: 'Format right side' }));
+    act(() => useCompareStore.getState().setView('left', 'formatted'));
+    fireEvent.click(screen.getByRole('button', { name: 'Parse error L1:11' }));
+    await waitFor(() => expect(useCompareStore.getState().views.left).toBe('original'));
+  });
+
+  it('labels statements the parser does not support', async () => {
+    render(<App />);
+    act(() => useCompareStore.getState().setDialect('mysql'));
+    setBoth('SET NAMES utf8;\nSELECT 1;', 'SET NAMES utf8mb4;\nSELECT 1;');
+    expect(
+      await screen.findAllByText('1 compared as text', undefined, { timeout: 5000 }),
+    ).toHaveLength(2);
+    expect(screen.getAllByText('◇ No structural comparison')).toHaveLength(2);
+    expect(screen.queryByRole('button', { name: /Parse error/ })).not.toBeInTheDocument();
+  });
+
+  it('runs a token diff only in Generic mode', async () => {
+    render(<App />);
+    act(() => useCompareStore.getState().setDialect('generic'));
+    setBoth('SELECT (a FROM t', 'SELECT (b FROM t');
+    expect(await screen.findByText('Token diff only', undefined, { timeout: 5000 })).toBeVisible();
+    expect(screen.queryByRole('button', { name: /Parse error/ })).not.toBeInTheDocument();
+    expect(screen.getByTestId('verdict')).toHaveTextContent('Potentially semantic');
+  });
+});

@@ -388,3 +388,4 @@ Coverage target: ≥ 90% lines for `packages/core`, ≥ 70% for UI.
 | 2 | Editor / diff | CodeMirror 6 + `@codemirror/merge`. |
 | 3 | Shareable links | Not in v1. Focus on paste, upload, formatting, and diff. |
 | 4 | Normalization | L2 is the default. L3 is an opt-in "Aggressive normalization" option. Differences are always separated into **formatting**, **structural**, and **potential semantic**. |
+| 5 | Parsers (M3) | PostgreSQL: `libpg-query` (real PostgreSQL 18 parser, WASM): 40/40 on the evaluation corpus vs 31–32/40 for the alternatives. MySQL: `node-sql-parser`. Both run in the comparison worker and load per dialect. See [docs/parser-evaluation.md](./docs/parser-evaluation.md). |

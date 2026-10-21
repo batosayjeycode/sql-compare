@@ -1,5 +1,6 @@
 import { useEffect, useRef, type ChangeEvent } from 'react';
 import { ACCEPT_ATTR } from '../lib/files';
+import { useShallow } from 'zustand/react/shallow';
 import { useCompareStore, type Side, type SideInput } from '../store/compare';
 import { useFileLoader } from '../hooks/useFileLoader';
 import type { SideDisplay } from '../hooks/useFormatted';
@@ -10,6 +11,25 @@ interface PaneHeaderProps {
   title: string;
   input: SideInput;
   display: SideDisplay;
+  /** Move the cursor to a character offset in this side's original SQL. */
+  onJump: (side: Side, offset: number) => void;
+}
+
+/** Parse issues for one side, if the latest result matches its current text. */
+function useSideAnalysis(side: Side) {
+  const errors = useCompareStore(
+    useShallow((s) =>
+      s.result && s.result.views[side].original === s[side].text
+        ? s.result.errors.filter((e) => e.side === side)
+        : [],
+    ),
+  );
+  const unsupported = useCompareStore((s) =>
+    s.result && s.result.views[side].original === s[side].text
+      ? s.result.statements[side].filter((st) => st.status === 'unsupported').length
+      : 0,
+  );
+  return { errors, unsupported };
 }
 
 function lineCount(text: string): number {
@@ -19,7 +39,7 @@ function lineCount(text: string): number {
   return n;
 }
 
-export function PaneHeader({ side, title, input, display }: PaneHeaderProps) {
+export function PaneHeader({ side, title, input, display, onJump }: PaneHeaderProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const clear = useCompareStore((s) => s.clear);
   const swap = useCompareStore((s) => s.swap);
@@ -27,6 +47,7 @@ export function PaneHeader({ side, title, input, display }: PaneHeaderProps) {
   const setView = useCompareStore((s) => s.setView);
   const notify = useCompareStore((s) => s.notify);
   const loadFile = useFileLoader();
+  const analysis = useSideAnalysis(side);
 
   // FR-2.1: if formatting fails (or would change tokens), say why and fall
   // back to the original rather than showing unverified output.
@@ -57,6 +78,25 @@ export function PaneHeader({ side, title, input, display }: PaneHeaderProps) {
         <span className={styles.paneMeta}>
           {lines} {lines === 1 ? 'line' : 'lines'}
         </span>
+        {analysis.errors.length > 0 && (
+          <button
+            type="button"
+            className={styles.errorPill}
+            onClick={() => onJump(side, analysis.errors[0]!.offset)}
+            title={analysis.errors.map((e) => `Line ${e.line}:${e.column} ${e.message}`).join('\n')}
+          >
+            Parse error L{analysis.errors[0]!.line}:{analysis.errors[0]!.column}
+            {analysis.errors.length > 1 && ` +${analysis.errors.length - 1}`}
+          </button>
+        )}
+        {analysis.unsupported > 0 && (
+          <span
+            className={styles.infoPill}
+            title="These statements use syntax the parser doesn't handle (procedural blocks, client commands, vendor extensions). Their changes are compared as text."
+          >
+            {analysis.unsupported} compared as text
+          </span>
+        )}
         {display.formatted && (
           <span className={styles.viewBadge} title="Formatted view. Switch to Original to edit.">
             Formatted · read-only

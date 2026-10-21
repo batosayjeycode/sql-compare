@@ -7,7 +7,7 @@ const VERDICTS: Record<Verdict, { label: string; cls: string | undefined }> = {
   'formatting-only': { label: 'Formatting only', cls: styles.formatting },
   'structural-only': { label: 'Equivalent (structural)', cls: styles.structural },
   'potentially-semantic': { label: 'Potentially semantic', cls: styles.semantic },
-  unknown: { label: 'Unknown', cls: styles.semantic },
+  unknown: { label: 'Unknown (unparsed SQL)', cls: styles.semantic },
 };
 
 function describeLines(diff: DiffSummary): string {
@@ -20,12 +20,7 @@ function describeLines(diff: DiffSummary): string {
 export function SummaryBar() {
   const hasBoth = useCompareStore((s) => s.left.text !== '' && s.right.text !== '');
   const result = useCompareStore((s) => s.result);
-  const stale = useCompareStore(
-    (s) =>
-      s.result !== null &&
-      (s.result.views.left.original !== s.left.text ||
-        s.result.views.right.original !== s.right.text),
-  );
+  const comparing = useCompareStore((s) => s.comparing);
   const lines = useCompareStore((s) => s.diff);
   const stats = hasBoth ? result?.stats : undefined;
 
@@ -35,6 +30,10 @@ export function SummaryBar() {
       icon: '⚠',
       label: 'Semantic',
       count: stats && stats.semantic + stats.unknown,
+      title:
+        stats && stats.unknown > 0
+          ? `Includes ${stats.unknown} change(s) in statements that couldn't be parsed`
+          : undefined,
     },
     { cls: styles.structural, icon: '≡', label: 'Structural', count: stats?.structural },
     { cls: styles.formatting, icon: '¶', label: 'Formatting', count: stats?.formatting },
@@ -45,7 +44,7 @@ export function SummaryBar() {
     <>
       <ul className={styles.legend} aria-label="Differences by category">
         {items.map((i) => (
-          <li key={i.label} className={`${styles.legendItem} ${i.cls}`}>
+          <li key={i.label} className={`${styles.legendItem} ${i.cls}`} title={i.title}>
             <span aria-hidden="true">{i.icon}</span> {i.label}
             {i.count !== undefined && <strong className={styles.count}>{i.count}</strong>}
           </li>
@@ -54,7 +53,15 @@ export function SummaryBar() {
       <div className={styles.statusGroup}>
         {verdict && (
           <span className={`${styles.verdict} ${verdict.cls}`} data-testid="verdict">
-            {stale ? 'Comparing…' : verdict.label}
+            {comparing ? 'Comparing…' : verdict.label}
+          </span>
+        )}
+        {verdict && result?.parser === null && (
+          <span
+            className={styles.status}
+            title="No parser for this dialect: formatting and token diff only."
+          >
+            Token diff only
           </span>
         )}
         <span className={styles.status} role="status" data-testid="diff-status">

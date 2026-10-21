@@ -1,6 +1,6 @@
 /**
  * Core types shared between the comparison engine and the UI.
- * See PLAN.md §5.6. These are a sketch and will be refined in M2–M5.
+ * See PLAN.md §5.6. Refined milestone by milestone (M5 adds AST paths/severity).
  */
 
 export type Dialect = 'postgresql' | 'mysql' | 'generic';
@@ -58,8 +58,33 @@ export interface ParseIssue {
   side: 'left' | 'right';
   statementIndex: number;
   message: string;
+  /** 1-based line and column of the error in the side's full input. */
   line: number;
   column: number;
+  /** Character offset of the error in the side's full input. */
+  offset: number;
+}
+
+/**
+ * How far a statement could be analyzed:
+ * - parsed:      the dialect parser accepted it
+ * - error:       the parser rejected it (see `message` / ParseIssue)
+ * - unsupported: syntax the parser doesn't handle (procedural blocks, client
+ *                commands, vendor extensions); compared as text only
+ * - skipped:     no parser for this dialect (Generic mode)
+ */
+export type StatementStatus = 'parsed' | 'error' | 'unsupported' | 'skipped';
+
+export interface StatementInfo {
+  index: number;
+  /** Character range of the statement, excluding its terminator. */
+  start: number;
+  end: number;
+  /** Leading keyword(s), e.g. "SELECT" or "CREATE TABLE". */
+  kind: string;
+  status: StatementStatus;
+  /** Parser error message, or why the statement is unsupported. */
+  message?: string;
 }
 
 export interface SideViews {
@@ -79,5 +104,8 @@ export interface ComparisonResult {
   differences: Difference[];
   transformations: Transformation[];
   errors: ParseIssue[];
+  statements: { left: StatementInfo[]; right: StatementInfo[] };
+  /** Parser used for structural analysis, or null (Generic mode / parser unavailable). */
+  parser: string | null;
   views: { left: SideViews; right: SideViews };
 }
