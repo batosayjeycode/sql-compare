@@ -40,6 +40,9 @@ export const DEFAULT_FILTERS: Filters = { semantic: true, structural: true, form
 /** Side-by-side or inline (unified) diff (FR-5.2). */
 export type Layout = 'split' | 'unified';
 
+/** Small screens show one pane at a time (PLAN §4.3). */
+export type MobileTab = 'left' | 'right' | 'diff' | 'summary';
+
 /** Differences panel: docked below or beside the editors, resizable. */
 export interface PanelSettings {
   open: boolean;
@@ -62,6 +65,8 @@ export interface Notice {
   id: number;
   kind: 'error' | 'warning' | 'info';
   message: string;
+  /** Optional button, e.g. "Reload" for an app update. */
+  action?: { label: string; run: () => void };
 }
 
 /** Raw line diff summary, derived from the merge view's chunks. */
@@ -76,6 +81,8 @@ export interface CompareState {
   right: SideInput;
   dialect: Dialect;
   theme: Theme;
+  /** Color-blind-safe diff colors (Okabe–Ito) instead of teal/rose. */
+  colorBlindPalette: boolean;
   /** Auto-save drafts to localStorage (FR-1.2, opt-out). */
   persistDrafts: boolean;
   notice: Notice | null;
@@ -87,8 +94,13 @@ export interface CompareState {
   result: ComparisonResult | null;
   /** True while a comparison for the current inputs is pending. */
   comparing: boolean;
+  /** How long the last comparison took in the engine (ms), when known. */
+  compareMs: number | null;
   filters: Filters;
   layout: Layout;
+  /** Layout of the Diff tab on small screens (inline by default). */
+  mobileLayout: Layout;
+  mobileTab: MobileTab;
   /** Collapse long unchanged regions (FR-5). */
   collapseUnchanged: boolean;
   panel: PanelSettings;
@@ -106,8 +118,9 @@ export interface CompareState {
   loadSample: () => void;
   setDialect: (dialect: Dialect) => void;
   toggleTheme: () => void;
+  setColorBlindPalette: (on: boolean) => void;
   setPersistDrafts: (persist: boolean) => void;
-  notify: (kind: Notice['kind'], message: string) => void;
+  notify: (kind: Notice['kind'], message: string, action?: Notice['action']) => void;
   dismissNotice: () => void;
   setDiff: (diff: DiffSummary | null) => void;
   setView: (side: Side, view: SideView) => void;
@@ -116,10 +129,12 @@ export interface CompareState {
   toggleRule: (id: string) => void;
   setFormatOptions: (options: Partial<FormatOptions>) => void;
   resetFormatOptions: () => void;
-  setResult: (result: ComparisonResult | null) => void;
+  setResult: (result: ComparisonResult | null, compareMs?: number | null) => void;
   setComparing: (comparing: boolean) => void;
   toggleFilter: (c: FilterClass) => void;
   setLayout: (layout: Layout) => void;
+  setMobileLayout: (layout: Layout) => void;
+  setMobileTab: (tab: MobileTab) => void;
   setCollapseUnchanged: (collapse: boolean) => void;
   setPanel: (panel: Partial<PanelSettings>) => void;
   /** Select a difference; with `scroll`, also bring it into view. */
@@ -210,6 +225,7 @@ export const initialState = {
   right: EMPTY_SIDE,
   dialect: DEFAULT_OPTIONS.dialect,
   theme: 'dark' as Theme,
+  colorBlindPalette: false,
   persistDrafts: true,
   notice: null,
   diff: null,
@@ -218,8 +234,11 @@ export const initialState = {
   normalization: DEFAULT_NORMALIZATION,
   result: null,
   comparing: false,
+  compareMs: null,
   filters: DEFAULT_FILTERS,
   layout: 'split' as Layout,
+  mobileLayout: 'unified' as Layout,
+  mobileTab: 'diff' as MobileTab,
   collapseUnchanged: false,
   panel: DEFAULT_PANEL,
   activeDiff: null,
@@ -253,8 +272,10 @@ export const useCompareStore = create<CompareState>()(
       },
       setDialect: (dialect) => set({ dialect }),
       toggleTheme: () => set((s) => ({ theme: s.theme === 'dark' ? 'light' : 'dark' })),
+      setColorBlindPalette: (colorBlindPalette) => set({ colorBlindPalette }),
       setPersistDrafts: (persistDrafts) => set({ persistDrafts }),
-      notify: (kind, message) => set({ notice: { id: ++noticeId, kind, message } }),
+      notify: (kind, message, action) =>
+        set({ notice: { id: ++noticeId, kind, message, ...(action ? { action } : {}) } }),
       dismissNotice: () => set({ notice: null }),
       setDiff: (diff) => set({ diff }),
       setView: (side, view) => set((s) => ({ views: { ...s.views, [side]: view } })),
@@ -277,10 +298,13 @@ export const useCompareStore = create<CompareState>()(
         set((s) => ({ formatOptions: { ...s.formatOptions, ...options } })),
       resetFormatOptions: () => set({ formatOptions: DEFAULT_FORMAT_OPTIONS }),
       // Difference ids are per result: a new result clears the selection.
-      setResult: (result) => set({ result, activeDiff: null, hoverDiff: null }),
+      setResult: (result, compareMs = null) =>
+        set({ result, compareMs, activeDiff: null, hoverDiff: null }),
       setComparing: (comparing) => set({ comparing }),
       toggleFilter: (c) => set((s) => ({ filters: { ...s.filters, [c]: !s.filters[c] } })),
       setLayout: (layout) => set({ layout }),
+      setMobileLayout: (mobileLayout) => set({ mobileLayout }),
+      setMobileTab: (mobileTab) => set({ mobileTab }),
       setCollapseUnchanged: (collapseUnchanged) => set({ collapseUnchanged }),
       setPanel: (panel) => set((s) => ({ panel: { ...s.panel, ...panel } })),
       setActiveDiff: (activeDiff, scroll = false) =>
@@ -308,11 +332,13 @@ export const useCompareStore = create<CompareState>()(
       partialize: (s) => ({
         dialect: s.dialect,
         theme: s.theme,
+        colorBlindPalette: s.colorBlindPalette,
         persistDrafts: s.persistDrafts,
         formatOptions: s.formatOptions,
         normalization: s.normalization,
         filters: s.filters,
         layout: s.layout,
+        mobileLayout: s.mobileLayout,
         collapseUnchanged: s.collapseUnchanged,
         panel: s.panel,
         ...(s.persistDrafts ? { left: s.left, right: s.right } : {}),

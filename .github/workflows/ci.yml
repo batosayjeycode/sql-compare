@@ -20,6 +20,7 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - run: npm run size
       - uses: actions/upload-artifact@v4
         with:
           name: web-dist
@@ -39,6 +40,8 @@ jobs:
         working-directory: apps/web
       - run: npm run build
       - run: npm run test:e2e
+      # PLAN M7: Lighthouse ≥ 90 for Performance, Accessibility and Best Practices.
+      - run: npm run lighthouse
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

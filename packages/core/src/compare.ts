@@ -5,10 +5,12 @@ import { diffStatements, type Change } from './diff/structural.js';
 import { code } from './diff/text.js';
 import { symmetricDiff, tokenDiff, type Segment } from './diff/token.js';
 import { caseInsensitiveWords, tokenKey } from './keywords.js';
+import { lineColumn } from './location.js';
 import {
   createNormalizer,
   RULES,
   type AnalyzedStatement,
+  type NormalizerCache,
   type NormToken,
   type SideSnapshot,
 } from './normalize/index.js';
@@ -27,19 +29,10 @@ import type {
   StatementPair,
 } from './types.js';
 
+export { lineColumn };
+
 type Side = 'left' | 'right';
 const SIDES = ['left', 'right'] as const;
-
-/** 1-based line and column of a character offset. */
-export function lineColumn(text: string, offset: number): { line: number; column: number } {
-  let line = 1;
-  let lineStart = 0;
-  for (let i = text.indexOf('\n'); i !== -1 && i < offset; i = text.indexOf('\n', i + 1)) {
-    line++;
-    lineStart = i + 1;
-  }
-  return { line, column: offset - lineStart + 1 };
-}
 
 function analyzeSide(
   side: Side,
@@ -82,6 +75,25 @@ function analyzeSide(
       info: { ...info, status: 'error', message: parsed.message },
     };
   });
+}
+
+/** A parser that parses each distinct statement text once (results are read-only). */
+function memoized(parser: ParserAdapter): ParserAdapter {
+  const results = new Map<string, ReturnType<ParserAdapter['parse']>>();
+  return {
+    name: parser.name,
+    dialect: parser.dialect,
+    canonical: (ast, mode) => parser.canonical(ast, mode),
+    parse(statement) {
+      const key = `${statement.opaque ?? ''}\u0000${statement.text}`;
+      let result = results.get(key);
+      if (!result) {
+        result = parser.parse(statement);
+        results.set(key, result);
+      }
+      return result;
+    },
+  };
 }
 
 const UNANALYZABLE = new Set(['error', 'unsupported']);
@@ -258,6 +270,8 @@ export function compare(
   parser: ParserAdapter | null = null,
 ): ComparisonResult {
   const errors: ParseIssue[] = [];
+  // Most statements appear on both sides unchanged: parse each text once.
+  if (parser) parser = memoized(parser);
   const analyzed = {
     left: analyzeSide('left', left, options, parser, errors),
     right: analyzeSide('right', right, options, parser, errors),
@@ -274,9 +288,10 @@ export function compare(
     disabledRules: new Set(options.disabledRules ?? []),
     caseInsensitiveTables: options.caseInsensitiveTables ?? false,
   };
+  const cache: NormalizerCache = new Map();
   const normalizers = {
-    left: createNormalizer('left', left, analyzed.left, normalizeOptions, parser),
-    right: createNormalizer('right', right, analyzed.right, normalizeOptions, parser),
+    left: createNormalizer('left', left, analyzed.left, normalizeOptions, parser, cache),
+    right: createNormalizer('right', right, analyzed.right, normalizeOptions, parser, cache),
   };
   const level = options.level >= 3 ? 3 : 2;
   const snapshots = {
@@ -705,7 +720,18 @@ export function compare(
 
   // L3 dry run: hint at changes aggressive normalization would resolve.
   if (level === 2 && options.level >= 2 && differences.some((d) => d.class === 'semantic')) {
-    const dry = { left: normalizers.left.snapshot(3), right: normalizers.right.snapshot(3) };
+    // Only statements with semantic differences need the dry run.
+    const only = { left: new Set<number>(), right: new Set<number>() };
+    for (const d of differences) {
+      if (d.class !== 'semantic') continue;
+      const pair = pairs[segments[d.statementPair]!.pair]!;
+      if (pair.left !== null) only.left.add(pair.left);
+      if (pair.right !== null) only.right.add(pair.right);
+    }
+    const dry = {
+      left: normalizers.left.snapshot(3, only.left),
+      right: normalizers.right.snapshot(3, only.right),
+    };
     const dryResiduals = segmentNorm(dry).map((n) => residual(n.left, n.right, options.dialect));
     differences = differences.map((d) => {
       if (d.class !== 'semantic') return d;

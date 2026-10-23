@@ -1,5 +1,5 @@
 import { wrap, type Remote } from 'comlink';
-import { compare, type CompareOptions } from '@sql-compare/core';
+import type { CompareOptions } from '@sql-compare/core';
 import type { EngineResponse } from './analyze';
 import type { EngineApi } from './engine.worker';
 
@@ -13,9 +13,15 @@ export interface Engine {
   dispose(): void;
 }
 
-function tokenOnly(left: string, right: string, options: CompareOptions, why: string) {
+async function tokenOnly(
+  left: string,
+  right: string,
+  options: CompareOptions,
+  why: string,
+): Promise<EngineResponse> {
+  const { tokenOnlyCompare } = await import('./tokenOnly');
   return {
-    result: compare(left, right, options, null),
+    result: tokenOnlyCompare(left, right, options),
     warning: `${why} Showing a token comparison only; structural analysis will retry on the next change.`,
   };
 }
@@ -62,7 +68,7 @@ function createWorkerEngine(): Engine {
           err instanceof Error && err.message === 'timeout'
             ? 'The comparison took too long and was stopped.'
             : 'The comparison engine stopped unexpectedly.';
-        return tokenOnly(left, right, options, why);
+        return await tokenOnly(left, right, options, why);
       } finally {
         clearTimeout(timer);
       }

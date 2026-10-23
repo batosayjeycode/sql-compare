@@ -9,7 +9,12 @@ export default defineConfig({
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
     { name: 'firefox', use: { ...devices['Desktop Firefox'] } },
     { name: 'webkit', use: { ...devices['Desktop Safari'] } },
-    { name: 'mobile', use: { ...devices['Pixel 7'] } },
+    // Small screens have their own tabbed layout: the desktop feature specs don't apply.
+    {
+      name: 'mobile',
+      use: { ...devices['Pixel 7'] },
+      testMatch: ['mobile.spec.ts', 'smoke.spec.ts', 'pwa.spec.ts'],
+    },
   ],
   webServer: {
     command: 'npm run preview',

@@ -27,12 +27,22 @@ const LAYOUTS: Array<{ id: Layout; label: string }> = [
  * Diff controls (FR-5.2, FR-5.3): side-by-side / inline, category filters,
  * previous / next difference, collapsing unchanged text.
  */
-export function DiffNav() {
+export function DiffNav({
+  part = 'all',
+  narrow = false,
+}: {
+  /** Small screens split the controls: mode at the top, filters and stepping at the bottom. */
+  part?: 'all' | 'controls' | 'navigation';
+  /** Small screens: the mode switch sets the Diff tab's layout. */
+  narrow?: boolean;
+}) {
   const result = useCompareStore((s) => s.result);
   const filters = useCompareStore((s) => s.filters);
   const toggleFilter = useCompareStore((s) => s.toggleFilter);
-  const layout = useCompareStore((s) => s.layout);
-  const setLayout = useCompareStore((s) => s.setLayout);
+  const layout = useCompareStore((s) => (narrow ? s.mobileLayout : s.layout));
+  const setLayout = useCompareStore((s) => (narrow ? s.setMobileLayout : s.setLayout));
+  const showControls = part !== 'navigation';
+  const showNavigation = part !== 'controls';
   const collapse = useCompareStore((s) => s.collapseUnchanged);
   const setCollapse = useCompareStore((s) => s.setCollapseUnchanged);
   const activeDiff = useCompareStore((s) => s.activeDiff);
@@ -50,76 +60,88 @@ export function DiffNav() {
 
   return (
     <div className={styles.nav}>
-      <fieldset className={styles.segmented}>
-        <legend className={styles.legend}>Mode</legend>
-        {LAYOUTS.map((l) => (
-          <label key={l.id} className={styles.option}>
-            <input
-              type="radio"
-              name="layout"
-              value={l.id}
-              checked={layout === l.id}
-              onChange={() => setLayout(l.id)}
-            />
-            <span>{l.label}</span>
-          </label>
-        ))}
-      </fieldset>
+      {showControls && (
+        <fieldset className={styles.segmented}>
+          <legend className={styles.legend}>Mode</legend>
+          {LAYOUTS.map((l) => (
+            <label key={l.id} className={styles.option}>
+              <input
+                type="radio"
+                name="layout"
+                value={l.id}
+                checked={layout === l.id}
+                onChange={() => setLayout(l.id)}
+              />
+              <span>{l.label}</span>
+            </label>
+          ))}
+        </fieldset>
+      )}
 
-      <div className={styles.group} role="group" aria-label="Show differences">
-        {FILTERS.map((f) => (
+      {showNavigation && (
+        <div className={styles.group} role="group" aria-label="Show differences">
+          {FILTERS.map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              className={`${styles.filter} ${styles[f.id]}`}
+              aria-pressed={filters[f.id]}
+              title={f.title}
+              onClick={() => toggleFilter(f.id)}
+            >
+              <span className={styles.filterIcon} aria-hidden="true">
+                {filters[f.id] ? '✓' : CLASS_ICONS[f.id]}
+              </span>{' '}
+              {f.label}
+              {counts[f.id] !== undefined && (
+                <>
+                  {' '}
+                  <strong className={styles.count}>{counts[f.id]}</strong>
+                </>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {showNavigation && (
+        <div className={styles.group} role="group" aria-label="Navigate differences">
           <button
-            key={f.id}
             type="button"
-            className={`${styles.filter} ${styles[f.id]}`}
-            aria-pressed={filters[f.id]}
-            title={f.title}
-            onClick={() => toggleFilter(f.id)}
+            className={styles.step}
+            disabled={!canStep}
+            onClick={() => goToDifference(-1)}
+            title="Previous difference (p, Shift+F7)"
+            aria-keyshortcuts="p Shift+F7"
           >
-            <span className={styles.filterIcon} aria-hidden="true">
-              {filters[f.id] ? '✓' : CLASS_ICONS[f.id]}
-            </span>{' '}
-            {f.label}
-            {counts[f.id] !== undefined && (
-              <>
-                {' '}
-                <strong className={styles.count}>{counts[f.id]}</strong>
-              </>
-            )}
+            ◀ Prev
           </button>
-        ))}
-      </div>
+          <span className={styles.position} aria-live="polite" data-testid="diff-position">
+            {canStep ? `${position === -1 ? '–' : position + 1} / ${visible.length}` : '0 / 0'}
+          </span>
+          <button
+            type="button"
+            className={styles.step}
+            disabled={!canStep}
+            onClick={() => goToDifference(1)}
+            title="Next difference (n, F7)"
+            aria-keyshortcuts="n F7"
+          >
+            Next ▶
+          </button>
+        </div>
+      )}
 
-      <div className={styles.group} role="group" aria-label="Navigate differences">
-        <button
-          type="button"
-          className={styles.step}
-          disabled={!canStep}
-          onClick={() => goToDifference(-1)}
-          title="Previous difference (p, Shift+F7)"
-          aria-keyshortcuts="p Shift+F7"
-        >
-          ◀ Prev
-        </button>
-        <span className={styles.position} aria-live="polite" data-testid="diff-position">
-          {canStep ? `${position === -1 ? '–' : position + 1} / ${visible.length}` : '0 / 0'}
-        </span>
-        <button
-          type="button"
-          className={styles.step}
-          disabled={!canStep}
-          onClick={() => goToDifference(1)}
-          title="Next difference (n, F7)"
-          aria-keyshortcuts="n F7"
-        >
-          Next ▶
-        </button>
-      </div>
-
-      <label className={styles.check} title="Fold long runs of unchanged lines">
-        <input type="checkbox" checked={collapse} onChange={(e) => setCollapse(e.target.checked)} />
-        Collapse unchanged
-      </label>
+      {showControls && (
+        <label className={styles.check} title="Fold long runs of unchanged lines">
+          <input
+            type="checkbox"
+            checked={collapse}
+            onChange={(e) => setCollapse(e.target.checked)}
+          />
+          Collapse unchanged
+        </label>
+      )}
     </div>
   );
 }

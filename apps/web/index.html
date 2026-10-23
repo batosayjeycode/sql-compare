@@ -10,15 +10,21 @@
     />
     <meta name="theme-color" content="#14161f" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
-      rel="stylesheet"
-    />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!-- Shown until the app starts (fast first paint); React replaces it. -->
+      <div class="boot" aria-hidden="true">
+        <div class="boot-header">
+          <span class="boot-logo"></span>
+          <span class="boot-title">SQL Compare</span>
+        </div>
+        <p class="boot-text">Loading the editor…</p>
+      </div>
+    </div>
+    <noscript>SQL Compare needs JavaScript: all comparisons run in your browser.</noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

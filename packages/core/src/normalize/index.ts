@@ -9,10 +9,12 @@ import type {
   StatementStatus,
   Transformation,
 } from '../types.js';
+import { printTokens } from './print.js';
 import { RULES } from './rules/index.js';
 import type { NormalizationRule, NormToken, RuleContext, RuleResult } from './types.js';
 
 export { RULES } from './rules/index.js';
+export { printTokens } from './print.js';
 export type { NormalizationRule, NormToken } from './types.js';
 
 /**
@@ -65,27 +67,6 @@ export function rulesFor(dialect: Dialect, level: number, disabled: ReadonlySet<
   );
 }
 
-const NO_SPACE_BEFORE = new Set([')', ',', ';', '.']);
-const NO_SPACE_AFTER = new Set(['(', '.']);
-
-/**
- * Statement SQL from tokens. Tokens that touched in the source stay touching
- * (`count(*)`, `a.b`, `x::int`); otherwise conventional spacing applies.
- */
-export function printTokens(tokens: NormToken[]): string {
-  return tokens
-    .map((t, i) => {
-      const prev = tokens[i - 1];
-      if (!prev) return t.text;
-      const tight =
-        prev.end === t.start ||
-        (t.type === 'punctuation' && NO_SPACE_BEFORE.has(t.text)) ||
-        (prev.type === 'punctuation' && NO_SPACE_AFTER.has(prev.text));
-      return (tight ? '' : ' ') + t.text;
-    })
-    .join('');
-}
-
 const MAX_SNIPPET = 80;
 const MAX_EXAMPLE_TOKENS = 6;
 const clip = (s: string) => (s.length > MAX_SNIPPET ? `${s.slice(0, MAX_SNIPPET - 1)}…` : s);
@@ -117,6 +98,18 @@ function changedRegion(before: NormToken[], after: NormToken[]) {
   return { before: excerpt(before), after: excerpt(after) };
 }
 
+/** What normalizing one statement at one level did: rules kept and rules rolled back. */
+interface Outcome {
+  accepted: Array<{ rule: NormalizationRule; before: NormToken[]; result: RuleResult }>;
+  rejected: NormalizationRule[];
+}
+
+/**
+ * Normalization outcomes by level and statement text (positions relative to
+ * the statement), shared by both sides of one comparison.
+ */
+export type NormalizerCache = Map<string, Outcome>;
+
 const NO_MODE: CanonicalMode = {
   commutative: false,
   caseInsensitiveColumns: false,
@@ -140,6 +133,7 @@ export function createNormalizer(
   statements: AnalyzedStatement[],
   options: NormalizeOptions,
   parser: ParserAdapter | null,
+  cache?: NormalizerCache,
 ) {
   const ctx: RuleContext = {
     dialect: options.dialect,
@@ -167,27 +161,52 @@ export function createNormalizer(
   // --- L1 -------------------------------------------------------------------
   const l1 = new Set(rulesFor(options.dialect, 1, options.disabledRules).map((r) => r.id));
   const active = options.level >= 1;
+  // Index of the first token starting at or after `pos` (tokens are in order).
+  const lowerBound = (tokens: readonly { start: number }[], pos: number) => {
+    let lo = 0;
+    let hi = tokens.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (tokens[mid]!.start < pos) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  };
   const terminatorStarts = new Set<number>();
   for (const { statement: s } of statements) {
     if (!s.terminator) continue;
     const at = text.indexOf(s.terminator, s.end);
     if (at === -1) continue;
-    for (const t of significant) {
-      if (t.start >= at && t.start < at + s.terminator.length) terminatorStarts.add(t.start);
+    for (let i = lowerBound(significant, at); i < significant.length; i++) {
+      const t = significant[i]!;
+      if (t.start >= at + s.terminator.length) break;
+      terminatorStarts.add(t.start);
     }
   }
+  /** Tokens of each statement, in one pass (statements are ordered and disjoint). */
+  const within = <T extends { start: number; end: number }>(tokens: readonly T[]) => {
+    const inside: T[][] = statements.map(() => []);
+    const rest: T[] = [];
+    let k = 0;
+    for (const t of tokens) {
+      while (k < statements.length && statements[k]!.statement.end < t.end) k++;
+      const s = statements[k]?.statement;
+      if (s && t.start >= s.start && t.end <= s.end) inside[k]!.push(t);
+      else rest.push(t);
+    }
+    return { inside, rest };
+  };
   const outside: NormToken[] = [];
-  for (const t of significant) {
-    const inStatement = statements.some(({ statement: s }) => t.start >= s.start && t.end <= s.end);
-    if (inStatement) continue;
+  for (const t of within(significant).rest) {
     if (active && l1.has('terminators') && terminatorStarts.has(t.start))
       touch(t.start, 'terminators');
     else outside.push(asNorm(t));
   }
+  const rawInside = within(raw).inside;
 
-  const states: StatementState[] = statements.map((analyzed) => {
-    const { start, end, index } = analyzed.statement;
-    const inside = raw.filter((t) => t.start >= start && t.end <= end);
+  const states: StatementState[] = statements.map((analyzed, k) => {
+    const { index } = analyzed.statement;
+    const inside = rawInside[k]!;
     if (active) {
       const spaces = inside.filter((t) => t.type === 'whitespace' && t.text !== ' ');
       if (spaces.length > 0 && l1.has('whitespace')) {
@@ -280,44 +299,76 @@ export function createNormalizer(
     state.mode = merge(state.mode, rule);
   };
 
-  const applyLevel = (level: 2 | 3) => {
+  const outcomeFor = (state: StatementState, rules: NormalizationRule[]): Outcome => {
+    const outcome: Outcome = { accepted: [], rejected: [] };
+    // Try the whole group with a single re-parse.
+    let tokens = state.tokens;
+    let mode = state.mode;
+    for (const rule of rules) {
+      const result = rule.apply(tokens, ctx);
+      if (!result) continue;
+      outcome.accepted.push({ rule, before: tokens, result });
+      tokens = result.tokens;
+      mode = merge(mode, rule);
+    }
+    if (outcome.accepted.length === 0 || verify(state, tokens, mode)) return outcome;
+    // Something in the group changed the meaning (or the parse): find it.
+    outcome.accepted = [];
+    tokens = state.tokens;
+    mode = state.mode;
+    for (const rule of rules) {
+      const result = rule.apply(tokens, ctx);
+      if (!result) continue;
+      if (verify(state, result.tokens, merge(mode, rule))) {
+        outcome.accepted.push({ rule, before: tokens, result });
+        tokens = result.tokens;
+        mode = merge(mode, rule);
+      } else {
+        outcome.rejected.push(rule);
+      }
+    }
+    return outcome;
+  };
+
+  const applyLevel = (level: 2 | 3, only?: ReadonlySet<number>) => {
     const rules = rulesFor(options.dialect, level, options.disabledRules);
     if (!parser || rules.length === 0) return;
     for (const state of states) {
       if (state.analyzed.status !== 'parsed') continue;
-      // Try the whole group with a single re-parse.
-      const steps: Array<{ rule: NormalizationRule; before: NormToken[]; result: RuleResult }> = [];
-      let tokens = state.tokens;
-      let mode = state.mode;
-      for (const rule of rules) {
-        const result = rule.apply(tokens, ctx);
-        if (!result) continue;
-        steps.push({ rule, before: tokens, result });
-        tokens = result.tokens;
-        mode = merge(mode, rule);
-      }
-      if (steps.length === 0) continue;
-      if (verify(state, tokens, mode)) {
-        for (const step of steps) accept(state, step.rule, step.before, step.result);
-        continue;
-      }
-      // Something in the group changed the meaning (or the parse): find it.
-      for (const rule of rules) {
-        const result = rule.apply(state.tokens, ctx);
-        if (!result) continue;
-        if (verify(state, result.tokens, merge(state.mode, rule))) {
-          accept(state, rule, state.tokens, result);
-        } else {
-          issues.push({
-            rule: rule.id,
-            side,
-            statementIndex: state.analyzed.statement.index,
-            message: `${rule.title} was not applied to statement ${state.analyzed.statement.index + 1}: the result did not parse to an equivalent statement.`,
-          });
-        }
+      if (only && !only.has(state.analyzed.statement.index)) continue;
+      const { start, text } = state.analyzed.statement;
+      // The outcome depends only on the statement's text: identical statements
+      // (on either side) are normalized and verified once.
+      const key = `${level}\u0000${text}`;
+      const cached = cache?.get(key);
+      const outcome = cached ? shiftOutcome(cached, start) : outcomeFor(state, rules);
+      if (!cached) cache?.set(key, shiftOutcome(outcome, -start));
+      for (const step of outcome.accepted) accept(state, step.rule, step.before, step.result);
+      for (const rule of outcome.rejected) {
+        issues.push({
+          rule: rule.id,
+          side,
+          statementIndex: state.analyzed.statement.index,
+          message: `${rule.title} was not applied to statement ${state.analyzed.statement.index + 1}: the result did not parse to an equivalent statement.`,
+        });
       }
     }
   };
+
+  const shiftTokens = (tokens: NormToken[], by: number) =>
+    tokens.map((t) => ({ ...t, start: t.start + by, end: t.end + by }));
+  const shiftOutcome = (o: Outcome, by: number): Outcome => ({
+    rejected: o.rejected,
+    accepted: o.accepted.map((step) => ({
+      rule: step.rule,
+      before: shiftTokens(step.before, by),
+      result: {
+        ...step.result,
+        tokens: shiftTokens(step.result.tokens, by),
+        touched: step.result.touched.map((t) => t + by),
+      },
+    })),
+  });
 
   const terminate = (p: { statement: boolean }) => p.statement && l1.has('terminators');
   const snapshotNow = (): SideSnapshot => {
@@ -340,14 +391,18 @@ export function createNormalizer(
 
   const snapshots = new Map<number, SideSnapshot>();
   return {
-    /** Normalized up to `level` (2 = default, 3 = aggressive). */
-    snapshot(level: 2 | 3): SideSnapshot {
+    /**
+     * Normalized up to `level` (2 = default, 3 = aggressive). With `only`,
+     * L3 is applied to those statements only (the L3 dry run needs no more);
+     * that snapshot then stands for level 3.
+     */
+    snapshot(level: 2 | 3, only?: ReadonlySet<number>): SideSnapshot {
       // Below L2 (level 0/1) only L1 applies.
       const target = options.level < 2 ? 1 : level;
       if (target === 1 && !snapshots.has(1)) snapshots.set(1, snapshotNow());
       for (let l = 2; l <= target; l++) {
         if (snapshots.has(l)) continue;
-        applyLevel(l as 2 | 3);
+        applyLevel(l as 2 | 3, l === 3 ? only : undefined);
         snapshots.set(l, snapshotNow());
       }
       return snapshots.get(target)!;

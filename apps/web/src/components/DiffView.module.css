@@ -37,6 +37,20 @@
   border-left: 1px solid var(--border);
 }
 
+.headers[data-count='1'] {
+  grid-template-columns: 1fr;
+}
+
+@media (max-width: 900px) {
+  .headers {
+    grid-template-columns: 1fr;
+  }
+  .paneHeader + .paneHeader {
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+}
+
 .paneInfo {
   display: flex;
   align-items: center;
@@ -223,7 +237,7 @@
   gap: var(--sp-2);
   border: 2px dashed var(--border);
   border-radius: var(--radius-lg);
-  color: var(--text-faint);
+  color: var(--text-muted);
   font-size: var(--fs-md);
 }
 

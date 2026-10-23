@@ -229,3 +229,18 @@
   font-size: var(--fs-xs);
   color: var(--text-muted);
 }
+
+.more {
+  display: block;
+  margin: var(--sp-3) auto 0;
+  font-size: var(--fs-sm);
+  padding: var(--sp-1) var(--sp-4);
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-elev-2);
+  cursor: pointer;
+}
+
+.more:hover {
+  border-color: var(--accent-1);
+}

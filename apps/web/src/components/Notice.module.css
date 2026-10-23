@@ -51,3 +51,14 @@
     transform: translateY(-8px);
   }
 }
+
+.action {
+  flex-shrink: 0;
+  font-size: var(--fs-sm);
+  padding: 2px var(--sp-3);
+  border-radius: 999px;
+  border: 1px solid var(--accent-1);
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+}

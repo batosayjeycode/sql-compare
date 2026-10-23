@@ -1,6 +1,6 @@
-import { lineColumn } from './compare.js';
+import { lineColumn } from './location.js';
 import { code } from './diff/text.js';
-import { RULES } from './normalize/index.js';
+import { RULES } from './normalize/rules/index.js';
 import type {
   CompareOptions,
   ComparisonResult,

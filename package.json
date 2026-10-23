@@ -20,7 +20,9 @@
     "typecheck": "tsc -b",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "size": "npm run size -w @sql-compare/web",
+    "lighthouse": "npm run lighthouse -w @sql-compare/web"
   },
   "devDependencies": {
     "@eslint/js": "^9.13.0",

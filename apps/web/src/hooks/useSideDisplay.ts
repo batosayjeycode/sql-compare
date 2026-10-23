@@ -1,5 +1,6 @@
-import { useMemo } from 'react';
-import { formatSql, type FormatResult } from '@sql-compare/core';
+import { useEffect, useState } from 'react';
+import type { Dialect, FormatOptions, FormatResult } from '@sql-compare/core';
+import { getFormatter } from '../engine/formatter';
 import { useCompareStore, type Side, type SideView } from '../store/compare';
 
 export interface SideDisplay {
@@ -11,12 +12,53 @@ export interface SideDisplay {
   readOnly: boolean;
   /** Set when the formatted view was requested but formatting failed. */
   formatError: string | null;
+  /** Pretty-printing is still running (in a worker); `text` is the unformatted SQL. */
+  pending: boolean;
+}
+
+/** Recent results, so switching views back and forth doesn't format again. */
+const recent = new Map<string, FormatResult>();
+const RECENT_LIMIT = 6;
+
+function remember(key: string, result: FormatResult) {
+  recent.delete(key);
+  recent.set(key, result);
+  if (recent.size > RECENT_LIMIT) recent.delete(recent.keys().next().value!);
+}
+
+/** Format `text` off the main thread; null while pending (or when `text` is null). */
+function useFormatted(
+  text: string | null,
+  dialect: Dialect,
+  options: FormatOptions,
+): FormatResult | null {
+  const key = text === null ? null : JSON.stringify([text, dialect, options]);
+  const [, setVersion] = useState(0);
+
+  useEffect(() => {
+    if (key === null || text === null || recent.has(key)) return;
+    let cancelled = false;
+    void getFormatter()
+      .format(text, dialect, options)
+      .then((result) => {
+        remember(key, result);
+        if (!cancelled) setVersion((v) => v + 1);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // `key` covers text, dialect and options.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+
+  return key === null ? null : (recent.get(key) ?? null);
 }
 
 /**
  * What one side displays (FR-3.1): the original, its formatted view, or its
- * normalized view. Formatting runs synchronously and only when needed; the
- * normalized SQL comes from the latest comparison and is pretty-printed.
+ * normalized view (from the latest comparison, pretty-printed). Formatting
+ * runs in a worker; until it's done the view shows the unformatted SQL,
+ * already read-only.
  */
 export function useSideDisplay(side: Side): SideDisplay {
   const text = useCompareStore((s) => s[side].text);
@@ -29,25 +71,40 @@ export function useSideDisplay(side: Side): SideDisplay {
       : undefined,
   );
 
-  const formatted: FormatResult | null = useMemo(
-    () => (view === 'formatted' ? formatSql(text, dialect, options) : null),
-    [view, text, dialect, options],
-  );
-  const normalizedText = useMemo(() => {
-    if (view !== 'normalized' || normalized === undefined) return null;
-    const pretty = formatSql(normalized, dialect, { ...options, keywordCase: 'upper' });
-    return pretty.ok ? pretty.text : normalized;
-  }, [view, normalized, dialect, options]);
+  const formatted = useFormatted(view === 'formatted' ? text : null, dialect, options);
+  const normalizedSource = view === 'normalized' && normalized !== undefined ? normalized : null;
+  const prettyNormalized = useFormatted(normalizedSource, dialect, {
+    ...options,
+    keywordCase: 'upper',
+  });
 
-  if (view === 'normalized' && normalizedText !== null) {
-    return { text: normalizedText, mode: 'normalized', readOnly: true, formatError: null };
+  if (normalizedSource !== null) {
+    const ready = prettyNormalized !== null;
+    return {
+      text: prettyNormalized?.ok ? prettyNormalized.text : normalizedSource,
+      mode: 'normalized',
+      readOnly: true,
+      formatError: null,
+      pending: !ready,
+    };
   }
-  if (formatted?.ok)
-    return { text: formatted.text, mode: 'formatted', readOnly: true, formatError: null };
+  if (view === 'formatted' && formatted === null) {
+    return { text, mode: 'formatted', readOnly: true, formatError: null, pending: true };
+  }
+  if (formatted?.ok) {
+    return {
+      text: formatted.text,
+      mode: 'formatted',
+      readOnly: true,
+      formatError: null,
+      pending: false,
+    };
+  }
   return {
     text,
     mode: 'original',
     readOnly: false,
     formatError: formatted && !formatted.ok ? formatted.message : null,
+    pending: false,
   };
 }

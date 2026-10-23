@@ -3,25 +3,9 @@ import { caseInsensitiveWords, FORMATTER_DIALECTS, tokenKey } from './keywords.j
 import { tokenize } from './tokenize.js';
 import type { Dialect } from './types.js';
 
-export type KeywordCase = 'preserve' | 'upper' | 'lower';
+import { DEFAULT_FORMAT_OPTIONS, type FormatOptions } from './formatOptions.js';
 
-/** User-facing formatter options (FR-2). Keyword case also applies to data types and built-in functions. */
-export interface FormatOptions {
-  keywordCase: KeywordCase;
-  indentWidth: number;
-  useTabs: boolean;
-  /** Max characters for a parenthesized expression to stay on one line. */
-  lineWidth: number;
-  logicalOperatorNewline: 'before' | 'after';
-}
-
-export const DEFAULT_FORMAT_OPTIONS: FormatOptions = {
-  keywordCase: 'upper',
-  indentWidth: 2,
-  useTabs: false,
-  lineWidth: 50,
-  logicalOperatorNewline: 'before',
-};
+export { DEFAULT_FORMAT_OPTIONS, type FormatOptions, type KeywordCase } from './formatOptions.js';
 
 export type FormatResult =
   { ok: true; text: string } | { ok: false; reason: 'error' | 'tokens-changed'; message: string };

@@ -1,0 +1,42 @@
+.tabs {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-elev-2);
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-1);
+  padding: var(--sp-2) var(--sp-2);
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+
+.tab[aria-selected='true'] {
+  background: var(--accent-gradient);
+  color: hsl(230 40% 10%);
+  font-weight: 600;
+}
+
+.badge {
+  min-width: 1.6em;
+  padding: 0 var(--sp-1);
+  border-radius: 999px;
+  font-size: var(--fs-xs);
+  background: var(--diff-semantic);
+  color: hsl(230 40% 10%);
+  font-variant-numeric: tabular-nums;
+}

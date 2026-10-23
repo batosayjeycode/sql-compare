@@ -9,6 +9,7 @@ import {
   type Difference,
   type ReportFormat,
 } from '@sql-compare/core';
+import { NARROW } from '../hooks/useMediaQuery';
 import { downloadReport } from '../lib/download';
 import { filterOf } from '../lib/differences';
 import { compareOptionsOf, useCompareStore } from '../store/compare';
@@ -16,6 +17,7 @@ import { Popover } from './Popover';
 import popover from './Popover.module.css';
 import styles from './DifferencesPanel.module.css';
 
+const PAGE = 200;
 const RULE_TITLES = new Map(RULES.map((r) => [r.id, r.title]));
 
 /** A description with its `code` spans rendered as <code>. */
@@ -59,7 +61,16 @@ function DifferenceItem({ d, clause }: { d: Difference; clause: string }) {
         aria-current={active ? 'true' : undefined}
         title={clause}
         data-diff={d.id}
-        onClick={() => setActiveDiff(d.id, true)}
+        onClick={() => {
+          // Small screens: the list is its own tab; show the diff, then scroll to the entry.
+          const { mobileTab, setMobileTab } = useCompareStore.getState();
+          if (mobileTab === 'summary' && window.matchMedia?.(NARROW).matches) {
+            setMobileTab('diff');
+            requestAnimationFrame(() => setActiveDiff(d.id, true));
+          } else {
+            setActiveDiff(d.id, true);
+          }
+        }}
         onMouseEnter={() => setHoverDiff(d.id)}
         onMouseLeave={() => setHoverDiff(null)}
         onFocus={() => setHoverDiff(d.id)}
@@ -155,6 +166,34 @@ export function DifferencesPanel() {
     0,
   );
 
+  // Long lists render in pages, so thousands of entries never block the page.
+  const [limit, setLimit] = useState(PAGE);
+  const activeDiff = useCompareStore((s) => s.activeDiff);
+  useEffect(() => setLimit(PAGE), [result]);
+  const order = useMemo(
+    () => shown.flatMap((g) => g.clauses.flatMap((c) => c.differences.map((d) => d.id))),
+    [shown],
+  );
+  useEffect(() => {
+    const index = activeDiff ? order.indexOf(activeDiff) : -1;
+    if (index >= limit) setLimit(Math.ceil((index + 1) / PAGE) * PAGE);
+  }, [activeDiff, order, limit]);
+  const pages = useMemo(() => {
+    let budget = limit;
+    return shown
+      .map((g) => ({
+        ...g,
+        clauses: g.clauses
+          .map((c) => {
+            const differences = c.differences.slice(0, Math.max(0, budget));
+            budget -= differences.length;
+            return { ...c, differences };
+          })
+          .filter((c) => c.differences.length > 0),
+      }))
+      .filter((g) => g.clauses.length > 0);
+  }, [shown, limit]);
+
   let empty: string | null = null;
   if (!hasBoth || !result) empty = 'Paste SQL on both sides to see the differences.';
   else if (total === 0) empty = 'No differences: the inputs are identical.';
@@ -199,7 +238,7 @@ export function DifferencesPanel() {
         {empty ? (
           <p className={styles.empty}>{empty}</p>
         ) : (
-          shown.map((g) => (
+          pages.map((g) => (
             <section key={g.pair.index} className={styles.group} aria-label={g.label}>
               <h3 className={styles.groupHeading}>{g.label}</h3>
               {g.clauses.map((c) => (
@@ -214,6 +253,11 @@ export function DifferencesPanel() {
               ))}
             </section>
           ))
+        )}
+        {!empty && visible > limit && (
+          <button type="button" className={styles.more} onClick={() => setLimit((l) => l + PAGE)}>
+            Show {Math.min(PAGE, visible - limit)} more of {visible - limit} remaining
+          </button>
         )}
       </div>
     </section>
