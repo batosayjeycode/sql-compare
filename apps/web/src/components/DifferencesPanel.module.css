@@ -1,0 +1,231 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  backdrop-filter: blur(12px);
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.heading {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.total {
+  white-space: nowrap;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  padding: 0 var(--sp-2);
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+}
+
+.headerButton {
+  font-size: var(--fs-xs);
+  min-width: 28px;
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-elev-2);
+  cursor: pointer;
+}
+
+.headerButton:hover,
+.headerButton[aria-expanded='true'] {
+  border-color: var(--accent-1);
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--sp-2) var(--sp-3) var(--sp-3);
+}
+
+.empty {
+  margin: var(--sp-3) var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+
+.group + .group {
+  margin-top: var(--sp-3);
+}
+
+.groupHeading {
+  margin: var(--sp-2) var(--sp-2) var(--sp-1);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+.clause {
+  margin-left: var(--sp-2);
+}
+
+.clauseHeading {
+  margin: var(--sp-2) 0 2px var(--sp-2);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.item {
+  display: grid;
+  grid-template-columns: 1.5em 1fr auto;
+  align-items: start;
+  gap: var(--sp-2);
+  width: 100%;
+  padding: var(--sp-1) var(--sp-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  text-align: left;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
+}
+
+.item:hover {
+  background: var(--bg-elev-2);
+}
+
+.item[aria-current='true'] {
+  border-color: var(--accent-1);
+  background: hsl(250 95% 70% / 0.12);
+}
+
+.icon {
+  text-align: center;
+  font-weight: 700;
+}
+
+.semantic .icon {
+  color: var(--diff-semantic);
+}
+.structural .icon {
+  color: var(--diff-structural);
+}
+.formatting .icon {
+  color: var(--diff-formatting);
+}
+
+.text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  color: var(--text);
+}
+
+.description {
+  overflow-wrap: anywhere;
+}
+
+.description code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  font-variant-ligatures: none;
+  padding: 0 0.25em;
+  border-radius: 3px;
+  background: var(--bg-elev-2);
+}
+
+.note {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+/* Severity is spelled out; the border color repeats it. */
+.severity {
+  font-size: var(--fs-xs);
+  padding: 0 var(--sp-2);
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+
+.major {
+  border-color: var(--diff-removed);
+  color: var(--text);
+}
+.minor {
+  border-color: var(--diff-semantic);
+  color: var(--text);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.exportButtons {
+  display: flex;
+  gap: var(--sp-2);
+  margin: var(--sp-2) 0;
+}
+
+.exportButton {
+  flex: 1;
+  font-size: var(--fs-sm);
+  padding: var(--sp-1) var(--sp-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-elev-2);
+  cursor: pointer;
+}
+
+.exportButton:hover {
+  border-color: var(--accent-1);
+}
+
+.exportOption {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}

@@ -159,6 +159,51 @@
   border-left: 1px solid var(--border);
 }
 
+/* Inline (unified) view: a single editor that scrolls itself. */
+.merge > :global(.cm-editor) {
+  height: 100%;
+}
+
+.merge > :global(.cm-editor .cm-changedLine) {
+  background: var(--diff-added-line);
+}
+
+.merge > :global(.cm-editor .cm-changedText) {
+  background: var(--diff-added-text);
+  border-radius: 2px;
+}
+
+.merge > :global(.cm-editor .cm-deletedChunk) {
+  background: var(--diff-removed-line);
+}
+
+.merge > :global(.cm-editor .cm-deletedChunk .cm-deletedText) {
+  background: var(--diff-removed-text);
+}
+
+.merge > :global(.cm-editor .cm-changedLineGutter) {
+  background: none;
+  font-weight: 700;
+}
+
+/* Never color-only: + on inserted lines, strike-through on deleted text. */
+.merge > :global(.cm-editor .cm-changedLineGutter::before) {
+  content: '+';
+  color: var(--diff-added);
+}
+
+.merge > :global(.cm-editor .cm-deletedChunk del) {
+  text-decoration: line-through;
+  text-decoration-color: var(--diff-removed);
+}
+
+.merge :global(.cm-collapsedLines) {
+  color: var(--text-muted);
+  background: var(--bg-elev-2);
+  font-family: var(--font-ui);
+  font-size: var(--fs-xs);
+}
+
 /* Empty state ------------------------------------------------------------- */
 .empty {
   position: absolute;
@@ -230,6 +275,11 @@
 
 .dropOverlay[data-side='right'] {
   right: 0;
+}
+
+.dropOverlay[data-side='all'] {
+  left: 0;
+  width: 100%;
 }
 
 @media (max-width: 600px) {

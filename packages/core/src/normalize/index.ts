@@ -51,6 +51,11 @@ export interface SideSnapshot {
   issues: NormalizationIssue[];
   /** Normalized SQL: one statement per line. */
   text: string;
+  /**
+   * Source start of each significant token of `text`, in order (null for the
+   * `;` added after each statement), so positions map between the views.
+   */
+  sources: Array<number | null>;
 }
 
 export function rulesFor(dialect: Dialect, level: number, disabled: ReadonlySet<string>) {
@@ -314,6 +319,7 @@ export function createNormalizer(
     }
   };
 
+  const terminate = (p: { statement: boolean }) => p.statement && l1.has('terminators');
   const snapshotNow = (): SideSnapshot => {
     const pieces: Array<{ at: number; tokens: NormToken[]; statement: boolean }> = [
       ...states.map((s) => ({ at: s.analyzed.statement.start, tokens: s.tokens, statement: true })),
@@ -324,9 +330,11 @@ export function createNormalizer(
       touched: new Map([...touched].map(([k, v]) => [k, new Set(v)])),
       transformations: [...transformations],
       issues: [...issues],
-      text: pieces
-        .map((p) => printTokens(p.tokens) + (p.statement && l1.has('terminators') ? ';' : ''))
-        .join('\n'),
+      text: pieces.map((p) => printTokens(p.tokens) + (terminate(p) ? ';' : '')).join('\n'),
+      sources: pieces.flatMap((p) => [
+        ...p.tokens.map((t) => t.start),
+        ...(terminate(p) ? [null] : []),
+      ]),
     };
   };
 

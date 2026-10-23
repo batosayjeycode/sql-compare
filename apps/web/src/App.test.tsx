@@ -1,6 +1,6 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { EditorView } from '@codemirror/view';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { useCompareStore } from './store/compare';
 
@@ -331,5 +331,136 @@ describe('normalization', () => {
     expect(editorView('Left SQL').state.readOnly).toBe(true);
     expect(screen.getAllByText('Normalized · read-only')).toHaveLength(2);
     expect(useCompareStore.getState().left.text).toBe('select A from T inner join U on true;');
+  });
+});
+
+describe('differences panel and navigation', () => {
+  const LEFT = 'SELECT a, b FROM t JOIN u ON t.id = u.id WHERE x = 1';
+  const RIGHT = 'select a, b, c\nFROM t LEFT JOIN u ON t.id = u.id WHERE x = 2';
+  const panel = () => screen.getByRole('region', { name: /Differences/ });
+  const entries = () =>
+    within(panel()).queryAllByRole('button', {
+      name: /^(Semantic|Structural|Formatting|Unknown):/,
+    });
+  const ready = () => waitFor(() => expect(entries().length).toBeGreaterThan(0), { timeout: 5000 });
+
+  it('lists differences grouped by statement and clause, with descriptions', async () => {
+    render(<App />);
+    setBoth(LEFT, RIGHT);
+    await ready();
+    expect(
+      within(panel()).getByRole('heading', { name: 'Statement 1 · SELECT' }),
+    ).toBeInTheDocument();
+    expect(within(panel()).getByRole('heading', { name: 'FROM' })).toBeInTheDocument();
+    expect(panel()).toHaveTextContent('JOIN u changed from INNER to LEFT');
+    expect(within(panel()).getByText('u', { selector: 'code' })).toBeInTheDocument();
+    // Formatting is hidden by default (FR-5.3).
+    const classes = entries().map((e) => e.textContent!.split(':')[0]);
+    expect(classes).not.toContain('Formatting');
+  });
+
+  it('filters categories independently', async () => {
+    render(<App />);
+    setBoth(LEFT, RIGHT);
+    await ready();
+    const before = entries().length;
+    fireEvent.click(screen.getByRole('button', { name: /^Formatting \d+$/ }));
+    expect(entries().length).toBeGreaterThan(before);
+    fireEvent.click(screen.getByRole('button', { name: /^Semantic \d+$/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Formatting \d+$/ }));
+    expect(panel()).toHaveTextContent(/hidden by the filters/);
+  });
+
+  it('selects entries by click and with n / p / F7', async () => {
+    render(<App />);
+    setBoth(LEFT, RIGHT);
+    await ready();
+    const position = screen.getByTestId('diff-position');
+    expect(position).toHaveTextContent('– / 3');
+
+    fireEvent.click(entries()[1]!);
+    expect(entries()[1]).toHaveAttribute('aria-current', 'true');
+    expect(position).toHaveTextContent('2 / 3');
+
+    fireEvent.keyDown(document.body, { key: 'n' });
+    expect(position).toHaveTextContent('3 / 3');
+    fireEvent.keyDown(document.body, { key: 'F7' });
+    expect(position).toHaveTextContent('1 / 3');
+    fireEvent.keyDown(document.body, { key: 'F7', shiftKey: true });
+    expect(position).toHaveTextContent('3 / 3');
+    fireEvent.keyDown(document.body, { key: 'p' });
+    expect(position).toHaveTextContent('2 / 3');
+    // Typing in a field never navigates.
+    fireEvent.keyDown(screen.getByLabelText('Dialect'), { key: 'n' });
+    expect(position).toHaveTextContent('2 / 3');
+  });
+
+  it('highlights visible differences in both editors', async () => {
+    render(<App />);
+    setBoth(LEFT, RIGHT);
+    await ready();
+    await waitFor(() => expect(document.querySelectorAll('.cm-scMark').length).toBeGreaterThan(0));
+    const marks = [...document.querySelectorAll('.cm-scMark.cm-sc-semantic')].map(
+      (m) => m.textContent,
+    );
+    expect(marks).toEqual(expect.arrayContaining(['1', '2', 'LEFT', 'c']));
+    fireEvent.click(entries()[0]!);
+    await waitFor(() =>
+      expect(document.querySelectorAll('.cm-scActive').length).toBeGreaterThan(0),
+    );
+  });
+
+  it('exports Markdown, HTML and JSON reports as downloads', async () => {
+    const blobs: Blob[] = [];
+    Object.assign(URL, {
+      createObjectURL: vi.fn((b: Blob) => {
+        blobs.push(b);
+        return 'blob:report';
+      }),
+      revokeObjectURL: vi.fn(),
+    });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    render(<App />);
+    setBoth(LEFT, RIGHT);
+    await ready();
+    fireEvent.click(within(panel()).getByRole('button', { name: 'Export' }));
+    for (const format of ['Markdown', 'HTML', 'JSON']) {
+      fireEvent.click(screen.getByRole('button', { name: format }));
+    }
+    expect(click).toHaveBeenCalledTimes(3);
+    // jsdom's Blob has no text().
+    const read = (b: Blob) =>
+      new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.readAsText(b);
+      });
+    const [md, html, json] = await Promise.all(blobs.map(read));
+    expect(md).toContain('JOIN `u` changed from INNER to LEFT');
+    expect(html).toContain('<code>u</code>');
+    expect(JSON.parse(json!).verdict).toBe('potentially-semantic');
+    click.mockRestore();
+  });
+
+  it('switches to the inline view and back', async () => {
+    render(<App />);
+    setBoth(LEFT, RIGHT);
+    await ready();
+    fireEvent.click(screen.getByRole('radio', { name: 'Inline' }));
+    expect(screen.getByTestId('merge-view')).toHaveAttribute('data-layout', 'unified');
+    expect(screen.queryByLabelText('Left SQL')).not.toBeInTheDocument();
+    expect(editorText('Right SQL')).toBe(RIGHT);
+    fireEvent.click(screen.getByRole('radio', { name: 'Side-by-side' }));
+    expect(editorText('Left SQL')).toBe(LEFT);
+  });
+
+  it('docks, hides and shows the panel', () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: 'Dock panel to the right' }));
+    expect(useCompareStore.getState().panel.dock).toBe('right');
+    fireEvent.click(screen.getByRole('button', { name: 'Hide differences panel' }));
+    expect(screen.queryByRole('region', { name: /Differences/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Show differences' }));
+    expect(screen.getByRole('region', { name: /Differences/ })).toBeInTheDocument();
   });
 });

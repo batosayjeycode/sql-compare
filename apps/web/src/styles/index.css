@@ -63,6 +63,10 @@
   --text-faint: hsl(228 10% 46%);
   --diff-added: hsl(170 70% 30%);
   --diff-removed: hsl(350 65% 45%);
+  /* Darker category shades: text in these colors stays readable (WCAG AA) on light surfaces. */
+  --diff-semantic: hsl(32 95% 30%);
+  --diff-structural: hsl(265 50% 45%);
+  --diff-formatting: hsl(228 10% 40%);
   --diff-added-line: hsl(170 60% 40% / 0.1);
   --diff-removed-line: hsl(350 70% 55% / 0.08);
   --diff-added-text: hsl(170 60% 40% / 0.28);
