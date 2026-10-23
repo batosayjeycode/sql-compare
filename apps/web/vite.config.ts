@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
+import { pwa } from './vite.pwa';
 
 const require = createRequire(import.meta.url);
 
@@ -47,14 +48,19 @@ function serveLibpgQueryWasm(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), serveLibpgQueryWasm()],
+  plugins: [react(), serveLibpgQueryWasm(), pwa()],
   worker: { format: 'es', plugins: () => [emitLibpgQueryWasm()] },
   // Both parsers ship CommonJS; pre-bundle them so the dev server serves ESM.
   // They're only imported from the worker, which Vite's dependency scan misses.
   optimizeDeps: {
     include: ['libpg-query', 'node-sql-parser/build/mysql.js'],
   },
-  build: { target: 'es2022', sourcemap: true },
+  build: {
+    target: 'es2022',
+    sourcemap: true,
+    // Fonts stay files (cacheable, allowed by the CSP's font-src 'self'), never data: URIs.
+    assetsInlineLimit: (file) => (/\.woff2?$/.test(file) ? false : undefined),
+  },
   test: {
     name: 'web',
     environment: 'jsdom',

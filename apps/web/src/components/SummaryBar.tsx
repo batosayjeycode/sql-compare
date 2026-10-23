@@ -1,6 +1,7 @@
 import type { Verdict } from '@sql-compare/core';
 import { useCompareStore, type DiffSummary } from '../store/compare';
 import styles from '../App.module.css';
+import { AnimatedNumber } from './AnimatedNumber';
 import { TransformationsPanel } from './TransformationsPanel';
 
 const VERDICTS: Record<Verdict, { label: string; cls: string | undefined }> = {
@@ -22,6 +23,7 @@ export function SummaryBar() {
   const hasBoth = useCompareStore((s) => s.left.text !== '' && s.right.text !== '');
   const result = useCompareStore((s) => s.result);
   const comparing = useCompareStore((s) => s.comparing);
+  const compareMs = useCompareStore((s) => s.compareMs);
   const lines = useCompareStore((s) => s.diff);
   const stats = hasBoth ? result?.stats : undefined;
 
@@ -51,7 +53,11 @@ export function SummaryBar() {
         {items.map((i) => (
           <li key={i.label} className={`${styles.legendItem} ${i.cls}`} title={i.title}>
             <span aria-hidden="true">{i.icon}</span> {i.label}
-            {i.count !== undefined && <strong className={styles.count}>{i.count}</strong>}
+            {i.count !== undefined && (
+              <strong className={styles.count}>
+                <AnimatedNumber value={i.count} />
+              </strong>
+            )}
           </li>
         ))}
       </ul>
@@ -70,7 +76,11 @@ export function SummaryBar() {
       )}
       <div className={styles.statusGroup}>
         {verdict && (
-          <span className={`${styles.verdict} ${verdict.cls}`} data-testid="verdict">
+          <span
+            key={comparing ? 'comparing' : verdict.label}
+            className={`${styles.verdict} ${verdict.cls}`}
+            data-testid="verdict"
+          >
             {comparing ? 'Comparing…' : verdict.label}
           </span>
         )}
@@ -80,6 +90,21 @@ export function SummaryBar() {
             title="No parser for this dialect: formatting and token diff only."
           >
             Token diff only
+          </span>
+        )}
+        {verdict && !comparing && result && (
+          <span
+            className={`${styles.syncPill} ${result.errors.length > 0 ? styles.syncError : ''}`}
+            data-testid="sync-status"
+            title={
+              result.errors[0]
+                ? `${result.errors.length} parse error(s): ${result.errors[0].message}`
+                : 'The comparison reflects the current SQL'
+            }
+          >
+            {result.errors[0]
+              ? `Parse error (L${result.errors[0].line}:${result.errors[0].column})`
+              : `Up to date${compareMs !== null ? ` · ${compareMs} ms` : ''}`}
           </span>
         )}
         <span className={styles.status} role="status" data-testid="diff-status">

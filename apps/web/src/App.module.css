@@ -174,6 +174,11 @@
     border-color var(--dur-fast) var(--ease-out);
 }
 
+.iconButton[aria-pressed='true'] {
+  border-color: var(--accent-1);
+  background: hsl(250 95% 70% / 0.18);
+}
+
 .iconButton:hover {
   transform: translateY(-1px);
   border-color: var(--accent-1);
@@ -197,6 +202,10 @@
 
 .main[data-dock='right'] {
   flex-direction: row;
+}
+
+.editors[hidden] {
+  display: none;
 }
 
 .editors {
@@ -265,6 +274,7 @@
 }
 
 .verdict {
+  animation: fade-in var(--dur-med) var(--ease-out);
   font-size: var(--fs-sm);
   font-weight: 600;
   padding: 2px var(--sp-3);
@@ -281,11 +291,53 @@
   color: var(--text-muted);
 }
 
+.syncPill {
+  font-size: var(--fs-xs);
+  padding: 1px var(--sp-2);
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  animation: fade-in var(--dur-med) var(--ease-out);
+}
+
+.syncError {
+  border-color: var(--diff-removed);
+  color: var(--text);
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+}
+
 /* Responsive -------------------------------------------------------------- */
+/* Small screens: tabs, and navigation in a bar fixed to the bottom (PLAN §4.3). */
+.mobileBar {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  backdrop-filter: blur(16px) saturate(140%);
+  box-shadow: var(--shadow-lg);
+}
+
+.mobileBar > div {
+  justify-content: center;
+}
+
 @media (max-width: 900px) {
   .app {
     height: auto;
     min-height: 100%;
+    grid-template-rows: none;
+    gap: var(--sp-3);
+    padding: var(--sp-3);
   }
   .main,
   .main[data-dock='right'] {
@@ -296,8 +348,12 @@
     flex: none;
     min-height: 60vh;
   }
+  /* The bottom bar shows the counts (as filters). */
+  .legend {
+    display: none;
+  }
   .panel {
     flex: none;
-    max-height: 60vh;
+    min-height: 50vh;
   }
 }

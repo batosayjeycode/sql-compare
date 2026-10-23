@@ -105,6 +105,11 @@ export function PaneHeader({ side, title, input, display, onJump }: PaneHeaderPr
             {display.mode === 'normalized' ? 'Normalized' : 'Formatted'} · read-only
           </span>
         )}
+        {display.pending && (
+          <span className={styles.paneMeta} role="status">
+            Formatting…
+          </span>
+        )}
       </div>
       <div className={styles.paneActions}>
         <input

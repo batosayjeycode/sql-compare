@@ -4,16 +4,11 @@ export * from './types.js';
 export { deriveVerdict, emptyStats } from './verdict.js';
 export { tokenize, isTrivia, type Token, type TokenType } from './tokenize.js';
 export { caseInsensitiveWords, tokenKey } from './keywords.js';
-export {
-  formatSql,
-  significantKeys,
-  DEFAULT_FORMAT_OPTIONS,
-  type FormatOptions,
-  type FormatResult,
-  type KeywordCase,
-} from './format.js';
+export { formatSql, significantKeys, type FormatResult } from './format.js';
+export { DEFAULT_FORMAT_OPTIONS, type FormatOptions, type KeywordCase } from './formatOptions.js';
 export { tokenDiff } from './diff/token.js';
-export { compare, lineColumn } from './compare.js';
+export { compare } from './compare.js';
+export { lineColumn } from './location.js';
 export { SEVERITY, type Aspect } from './diff/severity.js';
 export { code } from './diff/text.js';
 export { createViewMapper, type ViewMapper, type ViewSource } from './views.js';
@@ -41,7 +36,9 @@ export {
   type ParserAdapter,
   type StatementParse,
 } from './parse.js';
-export { RULES, printTokens, type NormalizationRule } from './normalize/index.js';
+export { RULES } from './normalize/rules/index.js';
+export { printTokens } from './normalize/print.js';
+export type { NormalizationRule } from './normalize/types.js';
 
 export const DEFAULT_OPTIONS: CompareOptions = {
   dialect: 'postgresql',

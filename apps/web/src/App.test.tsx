@@ -121,13 +121,17 @@ function setBoth(left: string, right: string) {
 }
 
 describe('formatting', () => {
-  it('shows a read-only formatted view and keeps the original byte-identical', () => {
+  it('shows a read-only formatted view and keeps the original byte-identical', async () => {
     const original = 'select a, b from t where x = 1';
     setBoth(original, 'SELECT 1');
     render(<App />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Format left side' }));
-    expect(editorText('Left SQL')).toBe('SELECT\n  a,\n  b\nFROM\n  t\nWHERE\n  x = 1');
+    // Read-only at once; the formatted text arrives from the formatter.
+    expect(editorView('Left SQL').state.readOnly).toBe(true);
+    await waitFor(() =>
+      expect(editorText('Left SQL')).toBe('SELECT\n  a,\n  b\nFROM\n  t\nWHERE\n  x = 1'),
+    );
     expect(editorView('Left SQL').state.readOnly).toBe(true);
     expect(screen.getByText('Formatted · read-only')).toBeInTheDocument();
     expect(useCompareStore.getState().left.text).toBe(original);
@@ -137,11 +141,11 @@ describe('formatting', () => {
     expect(editorView('Left SQL').state.readOnly).toBe(false);
   });
 
-  it('switches both sides from the view bar', () => {
+  it('switches both sides from the view bar', async () => {
     setBoth('select 1', 'select 2');
     render(<App />);
     fireEvent.click(screen.getByRole('radio', { name: 'Formatted' }));
-    expect(editorText('Left SQL')).toBe('SELECT\n  1');
+    await waitFor(() => expect(editorText('Left SQL')).toBe('SELECT\n  1'));
     expect(editorText('Right SQL')).toBe('SELECT\n  2');
 
     // Mixed views: neither option is selected.
@@ -150,14 +154,14 @@ describe('formatting', () => {
     expect(screen.getByRole('radio', { name: 'Original' })).not.toBeChecked();
   });
 
-  it('applies formatting options', () => {
+  it('applies formatting options', async () => {
     setBoth('SELECT a FROM t', 'SELECT 1');
     render(<App />);
     fireEvent.click(screen.getByRole('button', { name: 'Formatting options' }));
     fireEvent.change(screen.getByLabelText('Keyword case'), { target: { value: 'lower' } });
     fireEvent.change(screen.getByLabelText('Indent'), { target: { value: '4' } });
     fireEvent.click(screen.getByRole('button', { name: 'Format left side' }));
-    expect(editorText('Left SQL')).toBe('select\n    a\nfrom\n    t');
+    await waitFor(() => expect(editorText('Left SQL')).toBe('select\n    a\nfrom\n    t'));
   });
 
   it('falls back to the original with a warning when formatting fails', async () => {

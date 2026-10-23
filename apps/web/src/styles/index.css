@@ -82,10 +82,34 @@
   --glow: 0 0 40px -14px hsl(250 95% 60% / 0.35);
 }
 
+/* Color-blind-safe diff colors (Okabe–Ito): blue for added, orange for removed. */
+[data-palette='color-blind'] {
+  --diff-added: hsl(202 77% 63%);
+  --diff-removed: hsl(27 100% 52%);
+  --diff-semantic: hsl(56 85% 62%);
+  --diff-structural: hsl(326 45% 70%);
+  --diff-added-line: hsl(202 77% 63% / 0.12);
+  --diff-removed-line: hsl(27 100% 52% / 0.12);
+  --diff-added-text: hsl(202 77% 63% / 0.34);
+  --diff-removed-text: hsl(27 100% 52% / 0.34);
+}
+
+[data-theme='light'][data-palette='color-blind'] {
+  --diff-added: hsl(202 100% 30%);
+  --diff-removed: hsl(25 100% 34%);
+  --diff-semantic: hsl(45 100% 26%);
+  --diff-structural: hsl(326 50% 38%);
+  --diff-added-line: hsl(202 100% 35% / 0.1);
+  --diff-removed-line: hsl(25 100% 42% / 0.1);
+  --diff-added-text: hsl(202 100% 35% / 0.26);
+  --diff-removed-text: hsl(25 100% 42% / 0.26);
+}
+
 :root {
   /* Typography */
-  --font-ui: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-ui: 'Inter Variable', 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono:
+    'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   --fs-xs: 0.75rem;
   --fs-sm: 0.8125rem;
   --fs-md: 0.9375rem;
@@ -152,4 +176,39 @@ textarea {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* Static shell in index.html, painted before the app script runs. */
+.boot {
+  padding: var(--sp-4);
+}
+
+.boot-header {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  min-height: 60px;
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+}
+
+.boot-logo {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--accent-gradient);
+}
+
+.boot-title {
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  color: var(--text);
+}
+
+.boot-text {
+  margin: var(--sp-6) 0;
+  text-align: center;
+  color: var(--text-muted);
 }

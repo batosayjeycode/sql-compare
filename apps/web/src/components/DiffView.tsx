@@ -1,20 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import {
+  Chunk,
   getChunks,
   getOriginalDoc,
   MergeView,
   originalDocChangeEffect,
   unifiedMergeView,
-  type Chunk,
 } from '@codemirror/merge';
 import {
   Annotation,
   ChangeSet,
   Compartment,
   EditorState,
+  Text,
   Transaction,
   type Extension,
-  type Text,
 } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import {
@@ -29,7 +29,7 @@ import { analysisExtensions, showAnalysis } from '../editor/analysis';
 import { highlightExtensions, setHighlights, type Highlight } from '../editor/highlights';
 import { baseExtensions, sqlLanguage } from '../editor/setup';
 import { visibleDifferences } from '../lib/differences';
-import { useCompareStore, type DiffSummary, type Side } from '../store/compare';
+import { useCompareStore, type DiffSummary, type Layout, type Side } from '../store/compare';
 import { useFileLoader } from '../hooks/useFileLoader';
 import { useSideDisplay, type SideDisplay } from '../hooks/useSideDisplay';
 import { PaneHeader } from './PaneHeader';
@@ -42,6 +42,13 @@ const SIDE_LABELS: Record<Side, { label: string; title: string }> = {
 };
 
 const COLLAPSE = { margin: 3, minSize: 6 };
+
+const SCROLLER_LABELS: Record<ViewLayout, string> = {
+  split: 'Side-by-side diff',
+  unified: 'Inline diff',
+  left: 'Original SQL',
+  right: 'Modified SQL',
+};
 
 /** Marks editor updates that come from the store (not the user), so they aren't echoed back. */
 const externalSync = Annotation.define<boolean>();
@@ -78,11 +85,17 @@ function summarize(chunks: readonly Chunk[], a: Text, b: Text): DiffSummary {
   return { chunks: chunks.length, linesAdded, linesRemoved };
 }
 
-/** The editors on screen: both sides (side-by-side) or only the right one (inline). */
+/**
+ * How the sides are shown: side-by-side, inline (unified), or a single side
+ * on its own (the Left / Right tabs on small screens).
+ */
+export type ViewLayout = Layout | 'left' | 'right';
+
+/** The editors on screen: both sides (side-by-side), the right one (inline), or one side. */
 interface Editors {
   merge: MergeView | null;
   a: EditorView | null;
-  b: EditorView;
+  b: EditorView | null;
   /** Element that scrolls (and is focusable for keyboard users). */
   scroller: HTMLElement;
 }
@@ -122,7 +135,14 @@ const plain = (description: string) =>
  * shows its original SQL (editable) or a read-only formatted / normalized view;
  * highlights are mapped into whichever view is shown.
  */
-export function DiffView() {
+export function DiffView({
+  layout,
+  onShowSide,
+}: {
+  layout: ViewLayout;
+  /** Bring a side that isn't shown into view (default: switch to side-by-side). */
+  onShowSide?: ((side: Side) => void) | undefined;
+}) {
   const hostRef = useRef<HTMLDivElement>(null);
   const editorsRef = useRef<Editors | null>(null);
   // Text currently in each editor, so store → editor sync skips the user's own edits.
@@ -137,7 +157,6 @@ export function DiffView() {
   const rightDisplay = useSideDisplay('right');
   const result = useCompareStore((s) => s.result);
   const filters = useCompareStore((s) => s.filters);
-  const layout = useCompareStore((s) => s.layout);
   const collapse = useCompareStore((s) => s.collapseUnchanged);
   const activeDiff = useCompareStore((s) => s.activeDiff);
   const hoverDiff = useCompareStore((s) => s.hoverDiff);
@@ -178,7 +197,7 @@ export function DiffView() {
           setText(side, text);
         }
         // The right editor updates last (MergeView) or alone (inline): it sees final chunks.
-        if (side !== 'right') return;
+        if (side !== 'right' || layout === 'right') return;
         const before = getChunks(update.startState)?.chunks;
         const after = getChunks(update.state)?.chunks;
         if (before === after || !after) return;
@@ -209,6 +228,26 @@ export function DiffView() {
       });
       editors = { merge, a: merge.a, b: merge.b, scroller: merge.dom };
       setDiff(summarize(merge.chunks, merge.a.state.doc, merge.b.state.doc));
+    } else if (layout === 'left' || layout === 'right') {
+      const side = layout;
+      const key = side === 'left' ? 'a' : 'b';
+      const editor = new EditorView({
+        parent: host,
+        state: EditorState.create({
+          doc: (side === 'left' ? latest.leftDisplay : latest.rightDisplay).text,
+          extensions: sideExtensions(
+            side,
+            key,
+            `Paste ${side === 'left' ? 'original' : 'modified'} SQL or drop a .sql file`,
+          ),
+        }),
+      });
+      editors = {
+        merge: null,
+        a: side === 'left' ? editor : null,
+        b: side === 'right' ? editor : null,
+        scroller: editor.scrollDOM,
+      };
     } else {
       const b = new EditorView({
         parent: host,
@@ -233,19 +272,27 @@ export function DiffView() {
     // The scroll container is reachable by keyboard.
     editors.scroller.tabIndex = 0;
     editors.scroller.setAttribute('role', 'group');
-    editors.scroller.setAttribute(
-      'aria-label',
-      layout === 'split' ? 'Side-by-side diff' : 'Inline diff',
-    );
+    editors.scroller.setAttribute('aria-label', SCROLLER_LABELS[layout]);
     editorsRef.current = editors;
     setGeneration((g) => g + 1);
 
     return () => {
-      (editors.merge ?? editors.b).destroy();
+      if (editors.merge) editors.merge.destroy();
+      else (editors.a ?? editors.b)?.destroy();
       editorsRef.current = null;
-      setDiff(null);
     };
   }, [layout, unifiedCollapse]);
+
+  // One side on its own (small screens): keep the line counts up to date.
+  useEffect(() => {
+    if (layout !== 'left' && layout !== 'right') return;
+    const timer = setTimeout(() => {
+      const a = Text.of(left.text.split('\n'));
+      const b = Text.of(right.text.split('\n'));
+      useCompareStore.getState().setDiff(summarize(Chunk.build(a, b), a, b));
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [layout, left.text, right.text]);
 
   // Collapsing unchanged text in the side-by-side view needs no rebuild.
   useEffect(() => {
@@ -259,23 +306,23 @@ export function DiffView() {
     const editors = editorsRef.current;
     if (!editors) return;
     const annotations = [externalSync.of(true), Transaction.addToHistory.of(false)];
-    if (rightDisplay.text !== syncedRef.current.right) {
-      syncedRef.current.right = rightDisplay.text;
-      editors.b.dispatch({
-        changes: { from: 0, to: editors.b.state.doc.length, insert: rightDisplay.text },
+    const replace = (editor: EditorView, text: string) =>
+      editor.dispatch({
+        changes: { from: 0, to: editor.state.doc.length, insert: text },
         // Undo must never bring formatted text back into the original.
         annotations,
       });
+    if (editors.b && rightDisplay.text !== syncedRef.current.right) {
+      syncedRef.current.right = rightDisplay.text;
+      replace(editors.b, rightDisplay.text);
     }
     if (leftDisplay.text !== syncedRef.current.left) {
-      syncedRef.current.left = leftDisplay.text;
       if (editors.a) {
-        editors.a.dispatch({
-          changes: { from: 0, to: editors.a.state.doc.length, insert: leftDisplay.text },
-          annotations,
-        });
-      } else {
+        syncedRef.current.left = leftDisplay.text;
+        replace(editors.a, leftDisplay.text);
+      } else if (editors.b && layout === 'unified') {
         // Inline view: the left side is the original document being compared against.
+        syncedRef.current.left = leftDisplay.text;
         const length = getOriginalDoc(editors.b.state).length;
         const changes = ChangeSet.of({ from: 0, to: length, insert: leftDisplay.text }, length);
         editors.b.dispatch({
@@ -284,6 +331,7 @@ export function DiffView() {
         });
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- layout changes rebuild (generation)
   }, [leftDisplay.text, rightDisplay.text, generation]);
 
   // Formatted and normalized views are read-only: edits always go to the original.
@@ -293,7 +341,7 @@ export function DiffView() {
     editors.a?.dispatch({
       effects: readOnlyRef.current.a.reconfigure(readOnlyExtension(leftDisplay.readOnly)),
     });
-    editors.b.dispatch({
+    editors.b?.dispatch({
       effects: readOnlyRef.current.b.reconfigure(readOnlyExtension(rightDisplay.readOnly)),
     });
   }, [leftDisplay.readOnly, rightDisplay.readOnly, generation]);
@@ -306,7 +354,7 @@ export function DiffView() {
     const editors = editorsRef.current;
     if (!editors) return;
     if (editors.a) showAnalysis(editors.a, 'left', leftReadOnly ? null : result);
-    showAnalysis(editors.b, 'right', rightReadOnly ? null : result);
+    if (editors.b) showAnalysis(editors.b, 'right', rightReadOnly ? null : result);
 
     const jump = pendingJumpRef.current;
     if (jump && !(jump.side === 'left' ? leftReadOnly : rightReadOnly)) {
@@ -412,24 +460,25 @@ export function DiffView() {
       if (editor) {
         moveTo(editor, offset);
       } else {
-        // Inline view shows the left side as deletions only: switch to side-by-side.
+        // The side isn't an editor here (inline view, or the other tab): show it first.
         pendingJumpRef.current = { side, offset };
-        useCompareStore.getState().setLayout('split');
+        if (onShowSide) onShowSide(side);
+        else useCompareStore.getState().setLayout('split');
       }
     },
-    [setView],
+    [setView, onShowSide],
   );
 
   useEffect(() => {
     const editors = editorsRef.current;
     if (!editors) return;
     editors.a?.dispatch({ effects: languageRef.current.a.reconfigure(sqlLanguage(dialect)) });
-    editors.b.dispatch({ effects: languageRef.current.b.reconfigure(sqlLanguage(dialect)) });
+    editors.b?.dispatch({ effects: languageRef.current.b.reconfigure(sqlLanguage(dialect)) });
   }, [dialect, generation]);
 
   const sideAt = useCallback(
     (clientX: number): Side => {
-      if (layout === 'unified') return 'right';
+      if (layout !== 'split') return layout === 'left' ? 'left' : 'right';
       const rect = hostRef.current?.getBoundingClientRect();
       return rect && clientX >= rect.left + rect.width / 2 ? 'right' : 'left';
     },
@@ -474,21 +523,25 @@ export function DiffView() {
       onDragLeave={onDragLeave}
       onDrop={onDrop}
     >
-      <div className={styles.headers}>
-        <PaneHeader
-          side="left"
-          title={SIDE_LABELS.left.title}
-          input={left}
-          display={leftDisplay}
-          onJump={jumpTo}
-        />
-        <PaneHeader
-          side="right"
-          title={SIDE_LABELS.right.title}
-          input={right}
-          display={rightDisplay}
-          onJump={jumpTo}
-        />
+      <div className={styles.headers} data-count={layout === 'left' || layout === 'right' ? 1 : 2}>
+        {layout !== 'right' && (
+          <PaneHeader
+            side="left"
+            title={SIDE_LABELS.left.title}
+            input={left}
+            display={leftDisplay}
+            onJump={jumpTo}
+          />
+        )}
+        {layout !== 'left' && (
+          <PaneHeader
+            side="right"
+            title={SIDE_LABELS.right.title}
+            input={right}
+            display={rightDisplay}
+            onJump={jumpTo}
+          />
+        )}
       </div>
       <div className={styles.body}>
         <div ref={hostRef} className={styles.merge} data-testid="merge-view" data-layout={layout} />
@@ -496,7 +549,7 @@ export function DiffView() {
         {dragSide && (
           <div
             className={styles.dropOverlay}
-            data-side={layout === 'unified' ? 'all' : dragSide}
+            data-side={layout === 'split' ? dragSide : 'all'}
             aria-hidden="true"
           >
             <span>Drop to load as {SIDE_LABELS[dragSide].title}</span>

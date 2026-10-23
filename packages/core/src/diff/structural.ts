@@ -1,4 +1,4 @@
-import { printTokens } from '../normalize/index.js';
+import { printTokens } from '../normalize/print.js';
 import type { Range } from '../normalize/structure.js';
 import type { NormToken } from '../normalize/types.js';
 import type { DiffKind, Severity } from '../types.js';

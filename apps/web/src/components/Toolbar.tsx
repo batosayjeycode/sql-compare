@@ -12,6 +12,8 @@ export function Toolbar() {
   const persistDrafts = useCompareStore((s) => s.persistDrafts);
   const setPersistDrafts = useCompareStore((s) => s.setPersistDrafts);
   const loadSample = useCompareStore((s) => s.loadSample);
+  const colorBlind = useCompareStore((s) => s.colorBlindPalette);
+  const setColorBlind = useCompareStore((s) => s.setColorBlindPalette);
 
   return (
     <div className={styles.toolbar}>
@@ -49,6 +51,17 @@ export function Toolbar() {
       </label>
 
       <FormatOptionsPanel />
+
+      <button
+        type="button"
+        className={styles.iconButton}
+        onClick={() => setColorBlind(!colorBlind)}
+        aria-pressed={colorBlind}
+        aria-label="Color-blind-safe colors"
+        title="Color-blind-safe colors (blue / orange instead of teal / rose)"
+      >
+        ◐
+      </button>
 
       <button
         id="theme-toggle"

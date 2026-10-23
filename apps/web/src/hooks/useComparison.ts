@@ -41,13 +41,13 @@ export function useComparison() {
     const timer = setTimeout(async () => {
       const engine = engineRef.current;
       if (!engine) return;
-      const { result, warning } = await engine.compare(
+      const { result, warning, durationMs } = await engine.compare(
         left,
         right,
         compareOptionsOf({ dialect, normalization }),
       );
       if (request !== requestRef.current) return;
-      setResult(result);
+      setResult(result, durationMs ?? null);
       setComparing(false);
       if (warning && warning !== lastWarningRef.current) notify('warning', warning);
       lastWarningRef.current = warning;
