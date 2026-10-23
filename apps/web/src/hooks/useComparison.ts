@@ -1,7 +1,6 @@
 import { useEffect, useRef } from 'react';
-import { DEFAULT_OPTIONS } from '@sql-compare/core';
 import { createEngine, type Engine } from '../engine/engine';
-import { useCompareStore } from '../store/compare';
+import { compareOptionsOf, useCompareStore } from '../store/compare';
 
 export const COMPARE_DEBOUNCE_MS = 300;
 
@@ -42,13 +41,11 @@ export function useComparison() {
     const timer = setTimeout(async () => {
       const engine = engineRef.current;
       if (!engine) return;
-      const { result, warning } = await engine.compare(left, right, {
-        ...DEFAULT_OPTIONS,
-        dialect,
-        level: normalization.aggressive ? 3 : 2,
-        disabledRules: normalization.disabledRules,
-        caseInsensitiveTables: normalization.caseInsensitiveTables,
-      });
+      const { result, warning } = await engine.compare(
+        left,
+        right,
+        compareOptionsOf({ dialect, normalization }),
+      );
       if (request !== requestRef.current) return;
       setResult(result);
       setComparing(false);

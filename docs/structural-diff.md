@@ -82,5 +82,5 @@ Items left over on both sides in equal numbers are paired in order: a changed it
 
 - Descriptions are only as fine as the clause model. A change deep inside an expression is described at the item level ("WHERE predicate changed: `…` → `…`"), with the highlight narrowed to the differing tokens. Subqueries are described recursively in `FROM`, CTEs, `INSERT … SELECT` and `CREATE … AS`, but not inside `WHERE … IN (SELECT …)`.
 - Procedural code (function and procedure bodies, `DO` blocks) is compared as text.
-- Source ranges are offsets in the original text. Mapping them into the Formatted and Normalized views, and highlighting them, is part of the M6 highlight layer.
+- Source ranges are offsets in the original text. The M6 highlight layer maps them into the Formatted and Normalized views; see [summary-navigation.md](./summary-navigation.md).
 - PLAN §8 suggests about 200 pairs per dialect. The corpus has about 125 per dialect, chosen to cover each statement type and each rule. It should grow during M8 dogfooding with real migrations.

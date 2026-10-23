@@ -492,6 +492,7 @@ export function compare(
       });
       others = others.filter((d) => !resolvedByRules(d));
     }
+    const othersFrom = refined.length;
     refined.push(...others);
     const path = [pair.kind || 'Statement'];
     if (pair.status === 'moved' && !emittedMoves.has(pair.index)) {
@@ -547,15 +548,19 @@ export function compare(
     const rm = modelOf('right', r);
     const leftNorm = normalized.left[l]!;
     const rightNorm = normalized.right[r]!;
+    const index = new Map(leftNorm.map((t, i) => [t.start, i]));
+    const rIndex = new Map(rightNorm.map((t, i) => [t.start, i]));
     const located = (d: Difference): string[] => {
-      const index = new Map(leftNorm.map((t, i) => [t.start, i]));
-      const rIndex = new Map(rightNorm.map((t, i) => [t.start, i]));
       const ht = hunkTokens(d);
       const li = ht.left.map((t) => index.get(t.start)).find((i) => i !== undefined);
       if (li !== undefined) return locate(lm, li, path[0]!);
       const ri = ht.right.map((t) => rIndex.get(t.start)).find((i) => i !== undefined);
       return ri !== undefined ? locate(rm, ri, path[0]!) : path;
     };
+    // Formatting and structural changes get their clause too.
+    for (let k = othersFrom; k < othersFrom + others.length; k++) {
+      refined[k] = { ...refined[k]!, path: located(refined[k]!) };
+    }
 
     const describable =
       lm !== null &&
@@ -763,8 +768,16 @@ export function compare(
     pairs,
     parser: parser?.name ?? null,
     views: {
-      left: { original: left, normalized: snapshots.left.text },
-      right: { original: right, normalized: snapshots.right.text },
+      left: {
+        original: left,
+        normalized: snapshots.left.text,
+        normalizedSources: snapshots.left.sources,
+      },
+      right: {
+        original: right,
+        normalized: snapshots.right.text,
+        normalizedSources: snapshots.right.sources,
+      },
     },
   };
 }

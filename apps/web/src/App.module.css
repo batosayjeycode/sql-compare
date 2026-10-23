@@ -183,13 +183,32 @@
 .viewBar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--sp-3);
   margin-bottom: calc(-1 * var(--sp-2));
 }
 
-/* Main -------------------------------------------------------------------- */
+/* Main: editors + differences panel (docked bottom or right) ------------- */
 .main {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.main[data-dock='right'] {
+  flex-direction: row;
+}
+
+.editors {
   display: grid;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+}
+
+.panel {
+  flex: 0 0 var(--panel-size, 220px);
+  min-width: 0;
   min-height: 0;
 }
 
@@ -268,7 +287,17 @@
     height: auto;
     min-height: 100%;
   }
-  .main {
+  .main,
+  .main[data-dock='right'] {
+    flex-direction: column;
+    gap: var(--sp-3);
+  }
+  .editors {
+    flex: none;
     min-height: 60vh;
+  }
+  .panel {
+    flex: none;
+    max-height: 60vh;
   }
 }

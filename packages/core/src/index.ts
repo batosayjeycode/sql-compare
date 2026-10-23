@@ -15,6 +15,25 @@ export {
 export { tokenDiff } from './diff/token.js';
 export { compare, lineColumn } from './compare.js';
 export { SEVERITY, type Aspect } from './diff/severity.js';
+export { code } from './diff/text.js';
+export { createViewMapper, type ViewMapper, type ViewSource } from './views.js';
+export {
+  buildReport,
+  clauseOf,
+  CLASS_ICONS,
+  CLASS_LABELS,
+  groupDifferences,
+  inlineCodeToHtml,
+  splitCodeSpans,
+  pairLabel,
+  renderReport,
+  REPORT_FILES,
+  VERDICT_LABELS,
+  type DifferenceGroup,
+  type Report,
+  type ReportFormat,
+  type ReportInput,
+} from './report.js';
 export { splitStatements, type Statement } from './split.js';
 export {
   loadParser,

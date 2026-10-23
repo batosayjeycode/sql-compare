@@ -1,12 +1,37 @@
-import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react';
-import { getChunks, MergeView } from '@codemirror/merge';
-import { Annotation, Compartment, EditorState, Transaction, type Text } from '@codemirror/state';
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
+import {
+  getChunks,
+  getOriginalDoc,
+  MergeView,
+  originalDocChangeEffect,
+  unifiedMergeView,
+  type Chunk,
+} from '@codemirror/merge';
+import {
+  Annotation,
+  ChangeSet,
+  Compartment,
+  EditorState,
+  Transaction,
+  type Extension,
+  type Text,
+} from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
+import {
+  CLASS_LABELS,
+  createViewMapper,
+  splitCodeSpans,
+  type ComparisonResult,
+  type Dialect,
+  type ViewMapper,
+} from '@sql-compare/core';
 import { analysisExtensions, showAnalysis } from '../editor/analysis';
+import { highlightExtensions, setHighlights, type Highlight } from '../editor/highlights';
 import { baseExtensions, sqlLanguage } from '../editor/setup';
+import { visibleDifferences } from '../lib/differences';
 import { useCompareStore, type DiffSummary, type Side } from '../store/compare';
 import { useFileLoader } from '../hooks/useFileLoader';
-import { useSideDisplay } from '../hooks/useSideDisplay';
+import { useSideDisplay, type SideDisplay } from '../hooks/useSideDisplay';
 import { PaneHeader } from './PaneHeader';
 import { EmptyState } from './EmptyState';
 import styles from './DiffView.module.css';
@@ -15,6 +40,8 @@ const SIDE_LABELS: Record<Side, { label: string; title: string }> = {
   left: { label: 'Left SQL', title: 'Original' },
   right: { label: 'Right SQL', title: 'Modified' },
 };
+
+const COLLAPSE = { margin: 3, minSize: 6 };
 
 /** Marks editor updates that come from the store (not the user), so they aren't echoed back. */
 const externalSync = Annotation.define<boolean>();
@@ -41,24 +68,63 @@ function lineSpan(doc: Text, from: number, to: number): number {
   return doc.lineAt(Math.min(to - 1, doc.length)).number - doc.lineAt(from).number + 1;
 }
 
-function summarize(view: MergeView): DiffSummary {
+function summarize(chunks: readonly Chunk[], a: Text, b: Text): DiffSummary {
   let linesAdded = 0;
   let linesRemoved = 0;
-  for (const c of view.chunks) {
-    linesRemoved += lineSpan(view.a.state.doc, c.fromA, c.toA);
-    linesAdded += lineSpan(view.b.state.doc, c.fromB, c.toB);
+  for (const c of chunks) {
+    linesRemoved += lineSpan(a, c.fromA, c.toA);
+    linesAdded += lineSpan(b, c.fromB, c.toB);
   }
-  return { chunks: view.chunks.length, linesAdded, linesRemoved };
+  return { chunks: chunks.length, linesAdded, linesRemoved };
 }
 
+/** The editors on screen: both sides (side-by-side) or only the right one (inline). */
+interface Editors {
+  merge: MergeView | null;
+  a: EditorView | null;
+  b: EditorView;
+  /** Element that scrolls (and is focusable for keyboard users). */
+  scroller: HTMLElement;
+}
+
+/** Maps result ranges (offsets in the original SQL) into what an editor shows. */
+function mapperFor(
+  result: ComparisonResult | null,
+  side: Side,
+  input: string,
+  display: SideDisplay,
+  dialect: Dialect,
+): ViewMapper | null {
+  if (!result) return null;
+  const view = result.views[side];
+  // A pending comparison: the result describes older text.
+  if (view.original !== input) return null;
+  if (display.mode === 'original') {
+    return createViewMapper(view.original, display.text, dialect, { kind: 'original' });
+  }
+  if (display.mode === 'formatted') {
+    return createViewMapper(view.original, display.text, dialect, { kind: 'formatted' });
+  }
+  return createViewMapper(view.original, display.text, dialect, {
+    kind: 'normalized',
+    sources: view.normalizedSources ?? [],
+  });
+}
+
+const plain = (description: string) =>
+  splitCodeSpans(description)
+    .map((p) => p.text)
+    .join('');
+
 /**
- * Side-by-side raw text diff. Both sides are CodeMirror editors inside one
- * `MergeView`, so scrolling is shared and lines stay aligned. Each side shows
- * either its original SQL (editable) or a read-only formatted / normalized view.
+ * Side-by-side (`MergeView`) or inline (`unifiedMergeView`) diff of the two
+ * sides, with the classified-difference highlight layer on top. Each side
+ * shows its original SQL (editable) or a read-only formatted / normalized view;
+ * highlights are mapped into whichever view is shown.
  */
 export function DiffView() {
   const hostRef = useRef<HTMLDivElement>(null);
-  const viewRef = useRef<MergeView | null>(null);
+  const editorsRef = useRef<Editors | null>(null);
   // Text currently in each editor, so store → editor sync skips the user's own edits.
   const syncedRef = useRef<Record<Side, string>>({ left: '', right: '' });
   const languageRef = useRef({ a: new Compartment(), b: new Compartment() });
@@ -70,21 +136,40 @@ export function DiffView() {
   const leftDisplay = useSideDisplay('left');
   const rightDisplay = useSideDisplay('right');
   const result = useCompareStore((s) => s.result);
+  const filters = useCompareStore((s) => s.filters);
+  const layout = useCompareStore((s) => s.layout);
+  const collapse = useCompareStore((s) => s.collapseUnchanged);
+  const activeDiff = useCompareStore((s) => s.activeDiff);
+  const hoverDiff = useCompareStore((s) => s.hoverDiff);
+  const scrollRequest = useCompareStore((s) => s.scrollRequest);
   const setView = useCompareStore((s) => s.setView);
   const loadFile = useFileLoader();
   const [dragSide, setDragSide] = useState<Side | null>(null);
+  // Bumped when the editors are rebuilt (layout switch), to re-apply state.
+  const [generation, setGeneration] = useState(0);
   // A jump requested while that side showed a read-only view; applied once
   // the original is back in the editor.
   const pendingJumpRef = useRef<{ side: Side; offset: number } | null>(null);
+  // Latest display state, read when (re)building the editors.
+  const latestRef = useRef({ leftDisplay, rightDisplay, dialect, collapse });
+  latestRef.current = { leftDisplay, rightDisplay, dialect, collapse };
 
+  const unifiedCollapse = layout === 'unified' ? collapse : null;
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
-    const { setText, setDiff, dialect: initialDialect } = useCompareStore.getState();
-    const { left: l, right: r } = useCompareStore.getState();
-    syncedRef.current = { left: l.text, right: r.text };
+    const { setText, setDiff, setHoverDiff, setActiveDiff } = useCompareStore.getState();
+    const latest = latestRef.current;
+    syncedRef.current = { left: latest.leftDisplay.text, right: latest.rightDisplay.text };
 
-    const listener = (side: Side) =>
+    const sideExtensions = (side: Side, key: 'a' | 'b', placeholderText: string): Extension[] => [
+      baseExtensions({ label: SIDE_LABELS[side].label, placeholderText }),
+      languageRef.current[key].of(sqlLanguage(latest.dialect)),
+      readOnlyRef.current[key].of(
+        readOnlyExtension((side === 'left' ? latest.leftDisplay : latest.rightDisplay).readOnly),
+      ),
+      analysisExtensions(),
+      highlightExtensions({ hover: setHoverDiff, select: (id) => setActiveDiff(id) }),
       EditorView.updateListener.of((update) => {
         const external = update.transactions.some((tr) => tr.annotation(externalSync));
         if (update.docChanged && !external) {
@@ -92,131 +177,264 @@ export function DiffView() {
           syncedRef.current[side] = text;
           setText(side, text);
         }
-        // B is always updated last by MergeView, so its listener sees final chunks.
-        if (side === 'right' && viewRef.current) {
-          const before = getChunks(update.startState)?.chunks;
-          const after = getChunks(update.state)?.chunks;
-          if (before !== after) setDiff(summarize(viewRef.current));
+        // The right editor updates last (MergeView) or alone (inline): it sees final chunks.
+        if (side !== 'right') return;
+        const before = getChunks(update.startState)?.chunks;
+        const after = getChunks(update.state)?.chunks;
+        if (before === after || !after) return;
+        const editors = editorsRef.current;
+        if (editors?.merge) {
+          setDiff(summarize(editors.merge.chunks, editors.merge.a.state.doc, update.state.doc));
+        } else {
+          setDiff(summarize(after, getOriginalDoc(update.state), update.state.doc));
         }
-      });
+      }),
+    ];
 
-    const view = new MergeView({
-      parent: host,
-      a: {
-        doc: l.text,
-        extensions: [
-          baseExtensions({
-            label: SIDE_LABELS.left.label,
-            placeholderText: 'Paste original SQL or drop a .sql file',
-          }),
-          languageRef.current.a.of(sqlLanguage(initialDialect)),
-          readOnlyRef.current.a.of([]),
-          analysisExtensions(),
-          listener('left'),
-        ],
-      },
-      b: {
-        doc: r.text,
-        extensions: [
-          baseExtensions({
-            label: SIDE_LABELS.right.label,
-            placeholderText: 'Paste modified SQL or drop a .sql file',
-          }),
-          languageRef.current.b.of(sqlLanguage(initialDialect)),
-          readOnlyRef.current.b.of([]),
-          analysisExtensions(),
-          listener('right'),
-        ],
-      },
-      highlightChanges: true,
-      gutter: true,
-    });
-    // The merge view is the shared scroll container; make it reachable by keyboard.
-    view.dom.tabIndex = 0;
-    view.dom.setAttribute('role', 'group');
-    view.dom.setAttribute('aria-label', 'Side-by-side diff');
-    viewRef.current = view;
-    setDiff(summarize(view));
+    let editors: Editors;
+    if (layout === 'split') {
+      const merge = new MergeView({
+        parent: host,
+        a: {
+          doc: latest.leftDisplay.text,
+          extensions: sideExtensions('left', 'a', 'Paste original SQL or drop a .sql file'),
+        },
+        b: {
+          doc: latest.rightDisplay.text,
+          extensions: sideExtensions('right', 'b', 'Paste modified SQL or drop a .sql file'),
+        },
+        highlightChanges: true,
+        gutter: true,
+        ...(latest.collapse ? { collapseUnchanged: COLLAPSE } : {}),
+      });
+      editors = { merge, a: merge.a, b: merge.b, scroller: merge.dom };
+      setDiff(summarize(merge.chunks, merge.a.state.doc, merge.b.state.doc));
+    } else {
+      const b = new EditorView({
+        parent: host,
+        state: EditorState.create({
+          doc: latest.rightDisplay.text,
+          extensions: [
+            sideExtensions('right', 'b', 'Paste modified SQL or drop a .sql file'),
+            unifiedMergeView({
+              original: latest.leftDisplay.text,
+              mergeControls: false,
+              highlightChanges: true,
+              gutter: true,
+              ...(latest.collapse ? { collapseUnchanged: COLLAPSE } : {}),
+            }),
+          ],
+        }),
+      });
+      editors = { merge: null, a: null, b, scroller: b.scrollDOM };
+      const chunks = getChunks(b.state)?.chunks ?? [];
+      setDiff(summarize(chunks, getOriginalDoc(b.state), b.state.doc));
+    }
+    // The scroll container is reachable by keyboard.
+    editors.scroller.tabIndex = 0;
+    editors.scroller.setAttribute('role', 'group');
+    editors.scroller.setAttribute(
+      'aria-label',
+      layout === 'split' ? 'Side-by-side diff' : 'Inline diff',
+    );
+    editorsRef.current = editors;
+    setGeneration((g) => g + 1);
 
     return () => {
-      view.destroy();
-      viewRef.current = null;
+      (editors.merge ?? editors.b).destroy();
+      editorsRef.current = null;
       setDiff(null);
     };
-  }, []);
+  }, [layout, unifiedCollapse]);
+
+  // Collapsing unchanged text in the side-by-side view needs no rebuild.
+  useEffect(() => {
+    // An explicit `undefined` turns collapsing off again.
+    const config = { collapseUnchanged: collapse ? COLLAPSE : undefined };
+    editorsRef.current?.merge?.reconfigure(config as Parameters<MergeView['reconfigure']>[0]);
+  }, [collapse, generation]);
 
   // Store → editor: uploads, samples, swap, clear, restored drafts, view switches.
   useEffect(() => {
-    const view = viewRef.current;
-    if (!view) return;
-    for (const [side, text, editor] of [
-      ['left', leftDisplay.text, view.a],
-      ['right', rightDisplay.text, view.b],
-    ] as const) {
-      if (text === syncedRef.current[side]) continue;
-      syncedRef.current[side] = text;
-      editor.dispatch({
-        changes: { from: 0, to: editor.state.doc.length, insert: text },
+    const editors = editorsRef.current;
+    if (!editors) return;
+    const annotations = [externalSync.of(true), Transaction.addToHistory.of(false)];
+    if (rightDisplay.text !== syncedRef.current.right) {
+      syncedRef.current.right = rightDisplay.text;
+      editors.b.dispatch({
+        changes: { from: 0, to: editors.b.state.doc.length, insert: rightDisplay.text },
         // Undo must never bring formatted text back into the original.
-        annotations: [externalSync.of(true), Transaction.addToHistory.of(false)],
+        annotations,
       });
     }
-  }, [leftDisplay.text, rightDisplay.text]);
+    if (leftDisplay.text !== syncedRef.current.left) {
+      syncedRef.current.left = leftDisplay.text;
+      if (editors.a) {
+        editors.a.dispatch({
+          changes: { from: 0, to: editors.a.state.doc.length, insert: leftDisplay.text },
+          annotations,
+        });
+      } else {
+        // Inline view: the left side is the original document being compared against.
+        const length = getOriginalDoc(editors.b.state).length;
+        const changes = ChangeSet.of({ from: 0, to: length, insert: leftDisplay.text }, length);
+        editors.b.dispatch({
+          effects: originalDocChangeEffect(editors.b.state, changes),
+          annotations,
+        });
+      }
+    }
+  }, [leftDisplay.text, rightDisplay.text, generation]);
 
   // Formatted and normalized views are read-only: edits always go to the original.
   useEffect(() => {
-    const view = viewRef.current;
-    if (!view) return;
-    view.a.dispatch({
+    const editors = editorsRef.current;
+    if (!editors) return;
+    editors.a?.dispatch({
       effects: readOnlyRef.current.a.reconfigure(readOnlyExtension(leftDisplay.readOnly)),
     });
-    view.b.dispatch({
+    editors.b.dispatch({
       effects: readOnlyRef.current.b.reconfigure(readOnlyExtension(rightDisplay.readOnly)),
     });
-  }, [leftDisplay.readOnly, rightDisplay.readOnly]);
+  }, [leftDisplay.readOnly, rightDisplay.readOnly, generation]);
 
   // Parse errors and badges: only on the original view, where offsets apply.
   // Runs after the store → editor sync above, so the editors hold the new text.
   const leftReadOnly = leftDisplay.readOnly;
   const rightReadOnly = rightDisplay.readOnly;
   useEffect(() => {
-    const view = viewRef.current;
-    if (!view) return;
-    showAnalysis(view.a, 'left', leftReadOnly ? null : result);
-    showAnalysis(view.b, 'right', rightReadOnly ? null : result);
+    const editors = editorsRef.current;
+    if (!editors) return;
+    if (editors.a) showAnalysis(editors.a, 'left', leftReadOnly ? null : result);
+    showAnalysis(editors.b, 'right', rightReadOnly ? null : result);
 
     const jump = pendingJumpRef.current;
     if (jump && !(jump.side === 'left' ? leftReadOnly : rightReadOnly)) {
+      const editor = jump.side === 'left' ? editors.a : editors.b;
       pendingJumpRef.current = null;
-      moveTo(jump.side === 'left' ? view.a : view.b, jump.offset);
+      if (editor) moveTo(editor, jump.offset);
     }
-  }, [result, leftReadOnly, rightReadOnly, leftDisplay.text, rightDisplay.text]);
+  }, [result, leftReadOnly, rightReadOnly, leftDisplay.text, rightDisplay.text, generation]);
+
+  // Classified differences, mapped into each side's current view.
+  const leftMode = leftDisplay.mode;
+  const rightMode = rightDisplay.mode;
+  const mappers = useMemo(
+    () => ({
+      left: mapperFor(result, 'left', left.text, leftDisplay, dialect),
+      right: mapperFor(result, 'right', right.text, rightDisplay, dialect),
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- display objects are rebuilt every render
+    [
+      result,
+      left.text,
+      right.text,
+      leftDisplay.text,
+      leftMode,
+      rightDisplay.text,
+      rightMode,
+      dialect,
+    ],
+  );
+  // Last highlights sent to each editor, so unchanged ones aren't re-dispatched.
+  const sentRef = useRef<Record<Side, string>>({ left: '', right: '' });
+  const visible = useMemo(() => visibleDifferences(result, filters), [result, filters]);
+
+  useEffect(() => {
+    const editors = editorsRef.current;
+    if (!editors) return;
+    for (const [side, editor] of [
+      ['left', editors.a],
+      ['right', editors.b],
+    ] as const) {
+      if (!editor) continue;
+      const mapper = mappers[side];
+      const highlights: Highlight[] = [];
+      if (mapper && editor.state.doc.toString() === syncedRef.current[side]) {
+        for (const d of visible) {
+          const range = d[side];
+          if (!range) continue;
+          const { from, to } = mapper.toDisplay(range);
+          highlights.push({
+            id: d.id,
+            cls: d.class,
+            from,
+            to,
+            label: `${CLASS_LABELS[d.class]} (${d.severity}): ${plain(d.description)}`,
+            active: d.id === activeDiff,
+            hover: d.id === hoverDiff,
+          });
+        }
+      }
+      const key = `${generation}:${editor.state.doc.length}:${JSON.stringify(highlights)}`;
+      if (key === sentRef.current[side]) continue;
+      sentRef.current[side] = key;
+      editor.dispatch({ effects: setHighlights.of(highlights) });
+    }
+  }, [mappers, visible, activeDiff, hoverDiff, generation, leftDisplay.text, rightDisplay.text]);
+
+  // Bring the selected difference into view (summary click, n/p, F7).
+  useEffect(() => {
+    const editors = editorsRef.current;
+    if (!editors || scrollRequest === 0) return;
+    const { activeDiff: id, result: current } = useCompareStore.getState();
+    const d = current?.differences.find((x) => x.id === id);
+    if (!d) return;
+    const targets = (
+      [
+        ['left', editors.a],
+        ['right', editors.b],
+      ] as const
+    ).flatMap(([side, editor]) => {
+      const range = d[side];
+      const mapper = mappers[side];
+      if (!editor || !range || !mapper) return [];
+      return [{ editor, ...mapper.toDisplay(range) }];
+    });
+    // Both panes share one scroll container: center on a side that has text to show.
+    const target = targets.find((t) => t.to > t.from) ?? targets[0];
+    target?.editor.dispatch({
+      effects: EditorView.scrollIntoView(target.from, { y: 'center' }),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only on request
+  }, [scrollRequest]);
 
   const jumpTo = useCallback(
     (side: Side, offset: number) => {
-      const view = viewRef.current;
-      if (!view) return;
+      const editors = editorsRef.current;
+      if (!editors) return;
       if (useCompareStore.getState().views[side] !== 'original') {
         pendingJumpRef.current = { side, offset };
         setView(side, 'original');
+        return;
+      }
+      const editor = side === 'left' ? editors.a : editors.b;
+      if (editor) {
+        moveTo(editor, offset);
       } else {
-        moveTo(side === 'left' ? view.a : view.b, offset);
+        // Inline view shows the left side as deletions only: switch to side-by-side.
+        pendingJumpRef.current = { side, offset };
+        useCompareStore.getState().setLayout('split');
       }
     },
     [setView],
   );
 
   useEffect(() => {
-    const view = viewRef.current;
-    if (!view) return;
-    view.a.dispatch({ effects: languageRef.current.a.reconfigure(sqlLanguage(dialect)) });
-    view.b.dispatch({ effects: languageRef.current.b.reconfigure(sqlLanguage(dialect)) });
-  }, [dialect]);
+    const editors = editorsRef.current;
+    if (!editors) return;
+    editors.a?.dispatch({ effects: languageRef.current.a.reconfigure(sqlLanguage(dialect)) });
+    editors.b.dispatch({ effects: languageRef.current.b.reconfigure(sqlLanguage(dialect)) });
+  }, [dialect, generation]);
 
-  const sideAt = useCallback((clientX: number): Side => {
-    const rect = hostRef.current?.getBoundingClientRect();
-    return rect && clientX >= rect.left + rect.width / 2 ? 'right' : 'left';
-  }, []);
+  const sideAt = useCallback(
+    (clientX: number): Side => {
+      if (layout === 'unified') return 'right';
+      const rect = hostRef.current?.getBoundingClientRect();
+      return rect && clientX >= rect.left + rect.width / 2 ? 'right' : 'left';
+    },
+    [layout],
+  );
 
   const hasFiles = (e: DragEvent) => Array.from(e.dataTransfer.types).includes('Files');
 
@@ -273,10 +491,14 @@ export function DiffView() {
         />
       </div>
       <div className={styles.body}>
-        <div ref={hostRef} className={styles.merge} data-testid="merge-view" />
+        <div ref={hostRef} className={styles.merge} data-testid="merge-view" data-layout={layout} />
         {isEmpty && <EmptyState />}
         {dragSide && (
-          <div className={styles.dropOverlay} data-side={dragSide} aria-hidden="true">
+          <div
+            className={styles.dropOverlay}
+            data-side={layout === 'unified' ? 'all' : dragSide}
+            aria-hidden="true"
+          >
             <span>Drop to load as {SIDE_LABELS[dragSide].title}</span>
           </div>
         )}

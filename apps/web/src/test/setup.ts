@@ -7,6 +7,8 @@ import { initialState, useCompareStore } from '../store/compare';
 const emptyRects = () => Object.assign([], { item: () => null }) as unknown as DOMRectList;
 Range.prototype.getClientRects ??= emptyRects;
 Range.prototype.getBoundingClientRect ??= () => new DOMRect();
+// …and has no scrolling (the differences list keeps the selected entry in view).
+Element.prototype.scrollIntoView ??= () => {};
 
 afterEach(() => {
   cleanup();

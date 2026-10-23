@@ -3,6 +3,7 @@ import { createJSONStorage, persist, type StateStorage } from 'zustand/middlewar
 import {
   DEFAULT_FORMAT_OPTIONS,
   DEFAULT_OPTIONS,
+  type CompareOptions,
   type ComparisonResult,
   type Dialect,
   type FormatOptions,
@@ -29,6 +30,27 @@ export const DEFAULT_NORMALIZATION: NormalizationSettings = {
   disabledRules: [],
   caseInsensitiveTables: false,
 };
+
+/** Highlight / list filters (FR-5.3). `unknown` differences follow `semantic`. */
+export type FilterClass = 'semantic' | 'structural' | 'formatting';
+export type Filters = Record<FilterClass, boolean>;
+/** FR-5.3: formatting differences are hidden from the highlight layer by default. */
+export const DEFAULT_FILTERS: Filters = { semantic: true, structural: true, formatting: false };
+
+/** Side-by-side or inline (unified) diff (FR-5.2). */
+export type Layout = 'split' | 'unified';
+
+/** Differences panel: docked below or beside the editors, resizable. */
+export interface PanelSettings {
+  open: boolean;
+  dock: 'bottom' | 'right';
+  /** Height when docked at the bottom, in px. */
+  height: number;
+  /** Width when docked on the right, in px. */
+  width: number;
+}
+
+export const DEFAULT_PANEL: PanelSettings = { open: true, dock: 'bottom', height: 220, width: 380 };
 
 export interface SideInput {
   text: string;
@@ -65,6 +87,17 @@ export interface CompareState {
   result: ComparisonResult | null;
   /** True while a comparison for the current inputs is pending. */
   comparing: boolean;
+  filters: Filters;
+  layout: Layout;
+  /** Collapse long unchanged regions (FR-5). */
+  collapseUnchanged: boolean;
+  panel: PanelSettings;
+  /** Selected difference (navigation / summary click), by id in `result`. */
+  activeDiff: string | null;
+  /** Difference under the pointer, highlighted on both sides. */
+  hoverDiff: string | null;
+  /** Bumped to scroll the editors to `activeDiff`. */
+  scrollRequest: number;
 
   setText: (side: Side, text: string) => void;
   loadFile: (side: Side, text: string, fileName: string) => void;
@@ -85,6 +118,13 @@ export interface CompareState {
   resetFormatOptions: () => void;
   setResult: (result: ComparisonResult | null) => void;
   setComparing: (comparing: boolean) => void;
+  toggleFilter: (c: FilterClass) => void;
+  setLayout: (layout: Layout) => void;
+  setCollapseUnchanged: (collapse: boolean) => void;
+  setPanel: (panel: Partial<PanelSettings>) => void;
+  /** Select a difference; with `scroll`, also bring it into view. */
+  setActiveDiff: (id: string | null, scroll?: boolean) => void;
+  setHoverDiff: (id: string | null) => void;
 }
 
 const EMPTY_SIDE: SideInput = { text: '', fileName: null };
@@ -152,6 +192,19 @@ function debouncedLocalStorage(): StateStorage {
 
 let noticeId = 0;
 
+/** Engine options for the current settings. */
+export function compareOptionsOf(
+  s: Pick<CompareState, 'dialect' | 'normalization'>,
+): CompareOptions {
+  return {
+    ...DEFAULT_OPTIONS,
+    dialect: s.dialect,
+    level: s.normalization.aggressive ? 3 : 2,
+    disabledRules: s.normalization.disabledRules,
+    caseInsensitiveTables: s.normalization.caseInsensitiveTables,
+  };
+}
+
 export const initialState = {
   left: EMPTY_SIDE,
   right: EMPTY_SIDE,
@@ -165,6 +218,13 @@ export const initialState = {
   normalization: DEFAULT_NORMALIZATION,
   result: null,
   comparing: false,
+  filters: DEFAULT_FILTERS,
+  layout: 'split' as Layout,
+  collapseUnchanged: false,
+  panel: DEFAULT_PANEL,
+  activeDiff: null,
+  hoverDiff: null,
+  scrollRequest: 0,
 } satisfies Partial<CompareState>;
 
 export const useCompareStore = create<CompareState>()(
@@ -216,8 +276,16 @@ export const useCompareStore = create<CompareState>()(
       setFormatOptions: (options) =>
         set((s) => ({ formatOptions: { ...s.formatOptions, ...options } })),
       resetFormatOptions: () => set({ formatOptions: DEFAULT_FORMAT_OPTIONS }),
-      setResult: (result) => set({ result }),
+      // Difference ids are per result: a new result clears the selection.
+      setResult: (result) => set({ result, activeDiff: null, hoverDiff: null }),
       setComparing: (comparing) => set({ comparing }),
+      toggleFilter: (c) => set((s) => ({ filters: { ...s.filters, [c]: !s.filters[c] } })),
+      setLayout: (layout) => set({ layout }),
+      setCollapseUnchanged: (collapseUnchanged) => set({ collapseUnchanged }),
+      setPanel: (panel) => set((s) => ({ panel: { ...s.panel, ...panel } })),
+      setActiveDiff: (activeDiff, scroll = false) =>
+        set((s) => ({ activeDiff, scrollRequest: s.scrollRequest + (scroll ? 1 : 0) })),
+      setHoverDiff: (hoverDiff) => set((s) => (s.hoverDiff === hoverDiff ? s : { hoverDiff })),
     }),
     {
       name: STORAGE_KEY,
@@ -231,6 +299,8 @@ export const useCompareStore = create<CompareState>()(
           ...saved,
           formatOptions: { ...current.formatOptions, ...saved.formatOptions },
           normalization: { ...current.normalization, ...saved.normalization },
+          filters: { ...current.filters, ...saved.filters },
+          panel: { ...current.panel, ...saved.panel },
         };
       },
       // Drafts are only written while persistDrafts is on; turning it off
@@ -241,6 +311,10 @@ export const useCompareStore = create<CompareState>()(
         persistDrafts: s.persistDrafts,
         formatOptions: s.formatOptions,
         normalization: s.normalization,
+        filters: s.filters,
+        layout: s.layout,
+        collapseUnchanged: s.collapseUnchanged,
+        panel: s.panel,
         ...(s.persistDrafts ? { left: s.left, right: s.right } : {}),
       }),
     },

@@ -125,6 +125,11 @@ export interface SideViews {
   original: string;
   formatted?: string;
   normalized?: string;
+  /**
+   * Source offset (in `original`) of each significant token of `normalized`,
+   * in order; null for tokens with no source (the `;` after each statement).
+   */
+  normalizedSources?: Array<number | null>;
 }
 
 export interface CompareOptions {
