@@ -13,7 +13,7 @@ Normalization decides whether a token-level change is **structural** (equivalent
 
    If the group fails, rules are retried one at a time and only the failing ones are rolled back for that statement. The rollback is listed in **Transformations applied → Not applied**.
 
-4. **Classification:** a raw change is structural when none of its tokens still differ after normalizing both sides, and a rule touched one of them (or the normalized inputs are identical overall). It is formatting when only L1 rules explain it. As a safety net, if the normalized inputs still differ but no change ended up semantic, all candidate changes revert to semantic.
+4. **Classification** (per aligned statement pair since M5, see [structural-diff.md](./structural-diff.md)): a raw change is structural when none of its tokens still differ after normalizing both sides, and a rule touched one of them (or the normalized inputs are identical overall). It is formatting when only L1 rules explain it. As a safety net, if a pair's normalized statements still differ but no change ended up semantic, its candidate changes revert to semantic.
 5. **L3 dry run:** at L2, L3 runs as a dry run, and semantic changes it would resolve get a hint ("may be structural under aggressive normalization").
 
 ## Never normalized

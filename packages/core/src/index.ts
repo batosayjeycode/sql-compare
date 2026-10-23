@@ -14,6 +14,7 @@ export {
 } from './format.js';
 export { tokenDiff } from './diff/token.js';
 export { compare, lineColumn } from './compare.js';
+export { SEVERITY, type Aspect } from './diff/severity.js';
 export { splitStatements, type Statement } from './split.js';
 export {
   loadParser,

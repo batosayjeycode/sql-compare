@@ -1,5 +1,6 @@
 import { diffArrays } from 'diff';
 import { caseInsensitiveWords, tokenKey } from '../keywords.js';
+import { code } from './text.js';
 import { isTrivia, tokenize, type Token } from '../tokenize.js';
 import type { Dialect, Difference, SourceRange } from '../types.js';
 
@@ -28,6 +29,16 @@ interface Hunk {
   a1: number;
   b0: number;
   b1: number;
+  segment: number;
+}
+
+/**
+ * Index ranges of significant tokens diffed together, e.g. one aligned
+ * statement pair. Segments are in order on both sides and cover every token.
+ */
+export interface Segment {
+  left: [number, number];
+  right: [number, number];
 }
 
 const MAX_SNIPPET = 48;
@@ -73,7 +84,17 @@ function joinReasons(reasons: FormattingReason[]): string {
   return `${[head, ...rest.slice(0, -1)].join(', ')} and ${rest[rest.length - 1]}`;
 }
 
-export function tokenDiff(left: string, right: string, dialect: Dialect): Difference[] {
+/**
+ * Without `segments`, the whole inputs are diffed as one segment. With them,
+ * each segment is diffed on its own; every difference stays inside one segment
+ * and its `statementPair` is the segment index.
+ */
+export function tokenDiff(
+  left: string,
+  right: string,
+  dialect: Dialect,
+  segments?: Segment[],
+): Difference[] {
   const keywords = caseInsensitiveWords(dialect);
   const lt = tokenize(left, dialect);
   const rt = tokenize(right, dialect);
@@ -82,26 +103,38 @@ export function tokenDiff(left: string, right: string, dialect: Dialect): Differ
   const lk = ls.map((t) => tokenKey(t, keywords));
   const rk = rs.map((t) => tokenKey(t, keywords));
 
-  // 1. Align significant tokens.
+  // 1. Align significant tokens, segment by segment.
   const pairs: Array<[number, number]> = [];
+  /** Segment of each matched pair. */
+  const pairSegment: number[] = [];
   const hunks: Hunk[] = [];
-  let a = 0;
-  let b = 0;
-  let open: Hunk | null = null;
-  for (const change of symmetricDiff(lk, rk)) {
-    if (!change.added && !change.removed) {
-      if (open) hunks.push(open);
-      open = null;
-      for (let k = 0; k < change.count; k++) pairs.push([a + k, b + k]);
-      a += change.count;
-      b += change.count;
-      continue;
+  const parts = segments ?? [{ left: [0, ls.length], right: [0, rs.length] }];
+  parts.forEach((segment, s) => {
+    let a = segment.left[0];
+    let b = segment.right[0];
+    let open: Hunk | null = null;
+    const changes = symmetricDiff(
+      lk.slice(segment.left[0], segment.left[1]),
+      rk.slice(segment.right[0], segment.right[1]),
+    );
+    for (const change of changes) {
+      if (!change.added && !change.removed) {
+        if (open) hunks.push(open);
+        open = null;
+        for (let k = 0; k < change.count; k++) {
+          pairs.push([a + k, b + k]);
+          pairSegment.push(s);
+        }
+        a += change.count;
+        b += change.count;
+        continue;
+      }
+      open ??= { a0: a, a1: a, b0: b, b1: b, segment: s };
+      if (change.removed) a = open.a1 += change.count;
+      else b = open.b1 += change.count;
     }
-    open ??= { a0: a, a1: a, b0: b, b1: b };
-    if (change.removed) a = open.a1 += change.count;
-    else b = open.b1 += change.count;
-  }
-  if (open) hunks.push(open);
+    if (open) hunks.push(open);
+  });
 
   const differences: Difference[] = [];
   let nextId = 0;
@@ -118,17 +151,17 @@ export function tokenDiff(left: string, right: string, dialect: Dialect): Differ
     const kind = h.a1 === h.a0 ? 'added' : h.b1 === h.b0 ? 'removed' : 'changed';
     differences.push({
       id: id(),
-      statementPair: 0,
+      statementPair: h.segment,
       path: [],
       kind,
       class: 'semantic',
       severity: 'major',
       description:
         kind === 'added'
-          ? `Added \`${after}\``
+          ? `Added ${code(after)}`
           : kind === 'removed'
-            ? `Removed \`${before}\``
-            : `Changed \`${before}\` → \`${after}\``,
+            ? `Removed ${code(before)}`
+            : `Changed ${code(before)} → ${code(after)}`,
       left: range('left', leftStart, leftEnd),
       right: range('right', rightStart, rightEnd),
     });
@@ -155,6 +188,9 @@ export function tokenDiff(left: string, right: string, dialect: Dialect): Differ
     const prev = pairs[m - 1];
     return prev ? prev[0] === i - 1 && prev[1] === j - 1 : i === 0 && j === 0;
   });
+  // Segment of an event: the pair it precedes or belongs to (the last one at the end).
+  const segmentOf = (e: FormattingEvent) =>
+    pairSegment[Math.min(Math.floor(e.order / 2), pairs.length - 1)] ?? 0;
   pairs.forEach(([i, j], m) => {
     const lTok = ls[i]!;
     const rTok = rs[j]!;
@@ -188,14 +224,14 @@ export function tokenDiff(left: string, right: string, dialect: Dialect): Differ
     );
     differences.push({
       id: id(),
-      statementPair: 0,
+      statementPair: segmentOf(first),
       path: [],
       kind: 'changed',
       class: 'formatting',
       severity: 'info',
       description:
         reasons.length === 1 && reasons[0] === 'keyword case' && group.length === 1
-          ? `Keyword case \`${left.slice(...first.left)}\` → \`${right.slice(...first.right)}\``
+          ? `Keyword case ${code(left.slice(...first.left))} → ${code(right.slice(...first.right))}`
           : `${joinReasons(reasons)} changed`,
       left: range('left', first.left[0], lastEvent.left[1]),
       right: range('right', first.right[0], lastEvent.right[1]),
@@ -215,6 +251,7 @@ export function tokenDiff(left: string, right: string, dialect: Dialect): Differ
     if (
       prev &&
       (hunkIndex(prev) !== hunkIndex(e) ||
+        segmentOf(prev) !== segmentOf(e) ||
         countNewlines(left, prev.left[1], e.left[0]) > 1 ||
         countNewlines(right, prev.right[1], e.right[0]) > 1)
     ) {
