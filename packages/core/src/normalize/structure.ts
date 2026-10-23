@@ -97,7 +97,7 @@ export function clauseEnd(
 }
 
 /** Index of the END matching the CASE at `i` (or the last token if unterminated). */
-function caseEnd(tokens: NormToken[], i: number): number {
+export function caseEnd(tokens: NormToken[], i: number): number {
   let depth = 0;
   for (let j = i; j < tokens.length; j++) {
     const w = word(tokens[j]);

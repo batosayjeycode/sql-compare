@@ -1,6 +1,6 @@
 /**
  * Core types shared between the comparison engine and the UI.
- * See PLAN.md §5.6. Refined milestone by milestone (M5 adds AST paths/severity).
+ * See PLAN.md §5.6.
  */
 
 export type Dialect = 'postgresql' | 'mysql' | 'generic';
@@ -32,7 +32,9 @@ export interface SourceRange {
 
 export interface Difference {
   id: string;
+  /** Index into `ComparisonResult.pairs`. */
   statementPair: number;
+  /** Where the difference is, e.g. ['SELECT', 'FROM', 'orders', 'join type']. */
   path: string[];
   kind: DiffKind;
   class: DiffClass;
@@ -100,6 +102,25 @@ export interface StatementInfo {
   message?: string;
 }
 
+/**
+ * Statements aligned across the two inputs (PLAN §5.5 step 2):
+ * - unchanged: identical text
+ * - changed:   aligned, with differences of any class
+ * - added / removed: no counterpart on the other side
+ * - moved:     identical after normalization, at a different position
+ */
+export type PairStatus = 'unchanged' | 'changed' | 'added' | 'removed' | 'moved';
+
+export interface StatementPair {
+  index: number;
+  /** Statement indices (into `statements.left/right`), null when missing on that side. */
+  left: number | null;
+  right: number | null;
+  status: PairStatus;
+  /** Statement kind ("SELECT", "CREATE TABLE", …). */
+  kind: string;
+}
+
 export interface SideViews {
   original: string;
   formatted?: string;
@@ -125,6 +146,8 @@ export interface ComparisonResult {
   normalizationIssues: NormalizationIssue[];
   errors: ParseIssue[];
   statements: { left: StatementInfo[]; right: StatementInfo[] };
+  /** Aligned statement pairs, in display order. */
+  pairs: StatementPair[];
   /** Parser used for structural analysis, or null (Generic mode / parser unavailable). */
   parser: string | null;
   views: { left: SideViews; right: SideViews };
